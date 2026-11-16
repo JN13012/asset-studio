@@ -95,3 +95,12 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric
 .field input:disabled { opacity: .55; }
 .field input[type=range] { padding: 0; accent-color: #79cce1; }
 .numeric-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px 8px; }
+
+.viewport.tool-lasso { cursor: crosshair; touch-action: none; }
+.viewport.tool-select { touch-action: none; user-select: none; }
+.tool-select .image-stage img:not([hidden]) { pointer-events: auto; cursor: move; }
+.tool-select .image-stage img[data-layer-id="source"] { cursor: default; }
+.tool-select .image-stage .selected-raster { outline: 2px dashed #60d4ed; }
+.lasso-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.lasso-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 10px; background: #26333e; border-top: 1px solid #405461; }
+.lasso-controls span { flex: 1; color: #b6dce7; font-size: 11px; }

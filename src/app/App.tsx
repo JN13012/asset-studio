@@ -6,6 +6,9 @@ import { createLayer, MAX_DOCUMENT_PIXELS, MAX_LAYERS, removeLayer, reorderLayer
 import type { RasterLayer } from '../core/layers';
 import { Viewport } from '../editor2d/Viewport';
 import { LayerPanel } from '../editor2d/LayerPanel';
+import { extractPolygon } from '../core/cutout';
+import type { Point } from '../core/cutout';
+import type { EditorTool } from '../editor2d/Viewport';
 
 interface DocumentState {
   source: SourceImage;
@@ -18,6 +21,7 @@ type ImportMode = 'source' | 'layer';
 export function App() {
   const [document, setDocument] = useState<DocumentState | null>(null);
   const [error, setError] = useState('');
+  const [tool, setTool] = useState<EditorTool>('pan');
   const [loading, setLoading] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const request = useRef(0);
@@ -64,6 +68,7 @@ export function App() {
         const layer = createLayer(layerId, file.name, next, previous.source);
         commit({ ...previous, layers: [...previous.layers, layer], assets: { ...previous.assets, [layerId]: next }, selected: layerId });
       } else {
+        setTool('pan');
         commit({ source: next, layers: [createLayer(SOURCE_ID, 'Image source', next, next)], assets: { [SOURCE_ID]: next }, selected: SOURCE_ID });
         for (const image of Object.values(previous?.assets ?? {})) URL.revokeObjectURL(image.url);
       }
@@ -89,6 +94,41 @@ export function App() {
   function choose(mode: ImportMode = 'source') {
     importMode.current = mode;
     input.current?.click();
+  }
+
+  async function copyPolygon(points: Point[]): Promise<boolean> {
+    const doc = current.current;
+    if (!doc || loading) return false;
+    if (doc.layers.length >= MAX_LAYERS) {
+      setError('Limite de 32 calques atteinte.'); return false;
+    }
+    const id = ++request.current;
+    setLoading(true);
+    setError('');
+    try {
+      const used = Object.values(doc.assets).reduce((sum, asset) => sum + asset.width * asset.height, 0);
+      const result = await extractPolygon(doc.source, points, MAX_DOCUMENT_PIXELS - used);
+      const previous = current.current;
+      if (id !== request.current || !previous || previous.source !== doc.source) {
+        URL.revokeObjectURL(result.image.url);
+        return false;
+      }
+      const layerId = crypto.randomUUID();
+      const layer = { ...createLayer(layerId, 'Objet détouré', result.image, previous.source), x: result.x, y: result.y };
+      commit({ ...previous, layers: [...previous.layers, layer], assets: { ...previous.assets, [layerId]: result.image }, selected: layerId });
+      setTool('select');
+      return true;
+    } catch (err) {
+      if (id === request.current) setError(err instanceof Error ? err.message : 'Échec du détourage.');
+      return false;
+    } finally {
+      if (id === request.current) setLoading(false);
+    }
+  }
+
+  function selectLayer(id: string) {
+    const doc = current.current;
+    if (doc && doc.layers.some(layer => layer.id === id)) commit({ ...doc, selected: id });
   }
 
   function changeLayer(id: string, patch: Partial<Omit<RasterLayer, 'id'>>) {
@@ -117,11 +157,12 @@ export function App() {
         <button onClick={() => choose()}>Importer une image</button>
         <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={onInput} />
         <span className="spacer" />
-        <span className="tag">M1 · édition locale</span>
+        <span className="tag">M1 · détourage local</span>
       </header>
       <aside className="tools" aria-label="Outils">
-        <button title="Déplacer / explorer la vue" aria-label="Déplacement de la vue" className="active">✥</button>
-        <button disabled title="Sélection sur image — M1.3" aria-label="Sélection, non disponible">▧</button>
+        <button title="Déplacer la vue" aria-label="Déplacement de la vue" aria-pressed={tool === 'pan'} className={tool === 'pan' ? 'active' : ''} onClick={() => setTool('pan')}>✥</button>
+        <button disabled={!source || loading} title="Sélectionner et déplacer un calque" aria-label="Sélection et déplacement" aria-pressed={tool === 'select'} className={tool === 'select' ? 'active' : ''} onClick={() => setTool('select')}>↖</button>
+        <button disabled={!source || loading} title="Lasso polygonal — copier un objet de la source" aria-label="Lasso polygonal" aria-pressed={tool === 'lasso'} className={tool === 'lasso' ? 'active' : ''} onClick={() => setTool('lasso')}>⬠</button>
         <button disabled title="Annotation — M2" aria-label="Annotation, non disponible">✎</button>
         <button disabled title="Géométrie — M1.4" aria-label="Géométrie, non disponible">◇</button>
       </aside>
@@ -129,11 +170,11 @@ export function App() {
         <div className="document-tab">{source?.file.name ?? 'Aucun document'}</div>
         {error && <div role="alert" className="error">{error}</div>}
         {loading && <div role="status" className="notice">Lecture de l’image…</div>}
-        <Viewport key={source?.url ?? 'empty'} source={source} choose={() => choose()} layers={document?.layers ?? []} assets={document?.assets ?? {}} />
+        <Viewport key={source?.url ?? 'empty'} source={source} choose={() => choose()} layers={document?.layers ?? []} assets={document?.assets ?? {}} selected={document?.selected ?? ''} tool={tool} busy={loading} select={selectLayer} change={changeLayer} copyPolygon={copyPolygon} />
       </main>
       <aside className="inspector" aria-label="Propriétés du document">
         <LayerPanel layers={document?.layers ?? []} selected={document?.selected ?? ''} loading={loading}
-          select={id => { const doc = current.current; if (doc) commit({ ...doc, selected: id }); }}
+          select={selectLayer}
           update={changeLayer} reorder={moveLayer} remove={deleteLayer} add={() => choose('layer')} />
         <section>
           <h2>Document</h2>
