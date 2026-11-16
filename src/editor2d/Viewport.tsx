@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
 import type { SourceImage } from '../core/sourceImage';
+import { SOURCE_ID } from '../core/layers';
+import type { RasterLayer } from '../core/layers';
 import { clampZoom, fitScale } from '../core/viewport';
 import type { Size } from '../core/viewport';
 
 interface Props {
   source: SourceImage | null;
   choose: () => void;
+  layers: RasterLayer[];
+  assets: Record<string, SourceImage>;
 }
 interface Point { x: number; y: number }
 
-export function Viewport({ source, choose }: Props) {
+export function Viewport({ source, choose, layers, assets }: Props) {
   const area = useRef<HTMLDivElement>(null);
   const drag = useRef<{ pointerId: number; start: Point; offset: Point } | null>(null);
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
@@ -67,7 +71,19 @@ export function Viewport({ source, choose }: Props) {
             height: source.height,
             transform: 'translate(-50%, -50%) translate(' + offset.x + 'px,' + offset.y + 'px) scale(' + scale + ')',
           }}>
-            <img src={source.url} alt="Image source du document" draggable={false} />
+            {layers.map(layer => {
+              const asset = assets[layer.id];
+              return (
+                <img key={layer.id} src={asset.url} data-layer-id={layer.id}
+                  alt={layer.id === SOURCE_ID ? 'Image source du document' : layer.name}
+                  draggable={false} hidden={!layer.visible}
+                  style={{
+                    width: asset.width, height: asset.height,
+                    left: layer.x, top: layer.y, opacity: layer.opacity,
+                    transform: 'rotate(' + layer.rotation + 'deg) scale(' + layer.scale + ')',
+                  }} />
+              );
+            })}
           </div>
         ) : (
           <div className="empty">

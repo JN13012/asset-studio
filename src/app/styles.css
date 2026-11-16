@@ -76,3 +76,22 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric
   .topbar { gap: 8px; padding: 0 6px; }
   .brand { font-size: 11px; }
 }
+
+/* M1 layer stack: all geometry is expressed in source-image pixels. */
+.image-stage { overflow: hidden; }
+.image-stage img { position: absolute; transform-origin: center; }
+.image-stage img[hidden] { display: none; }
+.panel-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 10px; }
+.panel-title h2 { margin: 0; }
+.layer-list { display: flex; flex-direction: column; gap: 3px; }
+.layer { display: flex; flex-wrap: nowrap; gap: 3px; padding: 3px; background: #28313b; border: 1px solid transparent; }
+.layer.selected { background: #304655; border-color: #579caf; }
+.layer button { padding: 4px 5px; background: transparent; border-color: transparent; }
+.layer-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.layer-eye { width: 27px; flex: 0 0 auto; }
+.layer-actions { display: flex; gap: 5px; margin: 9px 0 15px; }
+.field { display: flex; flex-direction: column; gap: 4px; color: #a4b3c1; font-size: 11px; margin: 8px 0; }
+.field input { min-width: 0; width: 100%; padding: 5px; color: #d7e1e7; background: #151921; border: 1px solid #404956; border-radius: 4px; font: inherit; }
+.field input:disabled { opacity: .55; }
+.field input[type=range] { padding: 0; accent-color: #79cce1; }
+.numeric-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px 8px; }

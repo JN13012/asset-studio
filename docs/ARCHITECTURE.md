@@ -1,7 +1,7 @@
 # Architecture
 
 ## Decisions
-- React + strict TypeScript + Vite. Use browser APIs initially; add Konva for object-based 2D editing at M1 when needed. Later Three.js for 3D.
+- React + strict TypeScript + Vite. Use browser APIs initially; keep native DOM rendering for early raster layers; consider Konva for interactive handles/vector tools if needed. Later Three.js for 3D.
 - Single frontend, no mandatory backend. Images and generated exports stay in the browser until the user explicitly downloads or shares them.
 - State is plain serializable document data, separated from transient viewport state and render objects. React state initially; consider Zustand when cross-tool state grows.
 - Blob/File source assets are kept separately from document metadata. Revoke object URLs after use. IndexedDB and project serialization planned for M1; no localStorage for binary assets.
