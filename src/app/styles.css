@@ -117,3 +117,9 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric
 .transform-overlay { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; pointer-events: none; z-index: 2; }
 .transform-handle { fill: #e1f7fc; stroke: #267a92; stroke-width: 1.2px; pointer-events: all; }
 .transform-handle:hover { fill: #60d4ed; }
+
+.viewport.tool-perspective { touch-action: none; user-select: none; }
+.tool-perspective .image-stage img:not([hidden]) { pointer-events: auto; cursor: move; }
+.tool-perspective .image-stage img[data-layer-id="source"] { cursor: default; }
+.perspective-handle { fill: #ffe1bc; stroke: #b97d39; stroke-width: 1.5px; pointer-events: all; cursor: move; }
+.perspective-handle:hover { fill: #eeb36a; }

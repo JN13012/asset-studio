@@ -5,6 +5,8 @@ import { SOURCE_ID } from '../core/layers';
 import type { RasterLayer } from '../core/layers';
 import { clampZoom, fitScale, zoomAtPoint } from '../core/viewport';
 import { TransformHandles } from './TransformHandles';
+import { PerspectiveHandles } from './PerspectiveHandles';
+import { cornerDelta, IDENTITY_QUAD, moveCorner, rasterTransform } from '../core/perspective';
 import { transformFromDrag } from '../core/transform';
 import type { Handle, TransformPatch } from '../core/transform';
 import type { Size } from '../core/viewport';
@@ -13,7 +15,7 @@ import { patchPosition } from '../core/repair';
 import type { RepairRegion } from '../core/repair';
 import type { Point } from '../core/cutout';
 
-export type EditorTool = 'pan' | 'select' | 'lasso' | 'patch' | 'mask';
+export type EditorTool = 'pan' | 'select' | 'lasso' | 'patch' | 'mask' | 'perspective';
 interface Props {
   source: SourceImage | null;
   choose: () => void;
@@ -37,6 +39,7 @@ interface Drag {
   original?: RasterLayer;
   image?: Size;
   handle?: Handle;
+  corner?: number;
   patch?: TransformPatch;
 }
 
@@ -121,15 +124,17 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
       return;
     }
     const start = { x: event.clientX, y: event.clientY };
-    if (tool === 'select') {
+    if (tool === 'select' || tool === 'perspective') {
       const target = event.target instanceof Element ? event.target : null;
       const handle = target?.closest('[data-transform-handle]')?.getAttribute('data-transform-handle') as Handle | null | undefined;
-      const layerId = handle ? selected : target?.closest('[data-layer-id]')?.getAttribute('data-layer-id');
+      const cornerValue = target?.closest('[data-perspective-corner]')?.getAttribute('data-perspective-corner');
+      const corner = cornerValue == null ? undefined : Number(cornerValue);
+      const layerId = handle || corner !== undefined ? selected : target?.closest('[data-layer-id]')?.getAttribute('data-layer-id');
       const layer = layers.find(item => item.id === layerId);
       if (!layer) return;
       select(layer.id);
       if (layer.locked || !layer.visible) return;
-      drag.current = { pointerId: event.pointerId, start, offset: { x: layer.x, y: layer.y }, layerId: layer.id, scale, original: layer, image: assets[layer.id], handle: handle ?? undefined };
+      drag.current = { pointerId: event.pointerId, start, offset: { x: layer.x, y: layer.y }, layerId: layer.id, scale, original: layer, image: assets[layer.id], handle: handle ?? undefined, corner };
     } else {
       drag.current = { pointerId: event.pointerId, start, offset, scale: 1 };
     }
@@ -142,7 +147,10 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
     const y = value.offset.y + (event.clientY - value.start.y) / value.scale;
     if (value.layerId) {
       let patch: TransformPatch = { x: Math.round(x), y: Math.round(y) };
-      if (value.handle && value.original && value.image) {
+      if (value.corner !== undefined && value.original && value.image) {
+        const delta = cornerDelta(value.original, value.image, { x: (event.clientX - value.start.x) / value.scale, y: (event.clientY - value.start.y) / value.scale });
+        patch = { quad: moveCorner(value.original.quad ?? IDENTITY_QUAD, value.corner, delta) };
+      } else if (value.handle && value.original && value.image) {
         const rect = stage.current?.getBoundingClientRect();
         if (!rect) return;
         const from = { x: (value.start.x - rect.left) / value.scale, y: (value.start.y - rect.top) / value.scale };
@@ -232,7 +240,7 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
                   style={{
                     width: asset.width, height: asset.height,
                     left: layer.x, top: layer.y, opacity: layer.opacity,
-                    transform: 'rotate(' + layer.rotation + 'deg) scale(' + layer.scale * (layer.stretchX ?? 1) + ',' + layer.scale * (layer.stretchY ?? 1) + ')',
+                    ...rasterTransform(layer, asset),
                   }} />
               );
             })}
@@ -255,10 +263,18 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
             <button onClick={choose}>Choisir un fichier</button>
           </div>
         )}
+        {source && active && tool === 'perspective' && (
+          <PerspectiveHandles layer={active} image={assets[active.id]} source={source} viewport={size} zoom={scale} offset={offset} />
+        )}
         {source && active && tool === 'select' && (
           <TransformHandles layer={active} image={assets[active.id]} source={source} viewport={size} zoom={scale} offset={offset} />
         )}
       </div>
+      {source && tool === 'perspective' && (
+        <div className="lasso-controls"><span>{active ? 'Glisser un sommet orange pour déformer le calque.' : 'Sélectionner un calque visible et déverrouillé.'}</span>
+          <button disabled={!active?.quad || busy} onClick={() => active && change(active.id, { quad: null })}>Réinitialiser la perspective</button>
+        </div>
+      )}
       {source && polygonTool && (
         <div className="lasso-controls">
           <span>{tool === 'patch' && picking ? 'Cliquer sur le coin supérieur gauche de la zone à recouvrir (contour vert).' : tool === 'mask' ? 'Délimiter une zone à reconstruire' : tool === 'patch' ? 'Délimiter une texture propre sur la source' : 'Tracer les contours sur l’image source'} · {points.length} sommets</span>
@@ -275,7 +291,7 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
         <button disabled={!source} onClick={() => setZoom(clampZoom(scale * 1.25))} aria-label="Zoom avant">+</button>
         <button disabled={!source} onClick={fit}>Ajuster</button>
         <button disabled={!source} onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }}>100 %</button>
-        <span>{tool === 'patch' || tool === 'lasso' ? 'Prélèvement sur la source originale' : tool === 'mask' ? 'Zones rouges : reconstruction demandée' : tool === 'select' ? 'Glisser le calque ou ses poignées · Molette : zoom' : 'Glisser pour déplacer la vue · Molette : zoom'}</span>
+        <span>{tool === 'patch' || tool === 'lasso' ? 'Prélèvement sur la source originale' : tool === 'mask' ? 'Zones rouges : reconstruction demandée' : tool === 'perspective' ? 'Déformation projective · Molette : zoom' : tool === 'select' ? 'Glisser le calque ou ses poignées · Molette : zoom' : 'Glisser pour déplacer la vue · Molette : zoom'}</span>
       </div>
     </>
   );

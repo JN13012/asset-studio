@@ -5,7 +5,7 @@ import type { Size } from './viewport';
 export const HANDLE_AXES = { nw: [-1,-1], n: [0,-1], ne: [1,-1], e: [1,0], se: [1,1], s: [0,1], sw: [-1,1], w: [-1,0] } as const;
 export type ResizeHandle = keyof typeof HANDLE_AXES;
 export type Handle = ResizeHandle | 'rotate';
-export type TransformPatch = Partial<Pick<RasterLayer, 'x' | 'y' | 'scale' | 'stretchX' | 'stretchY' | 'rotation'>>;
+export type TransformPatch = Partial<Pick<RasterLayer, 'x' | 'y' | 'scale' | 'stretchX' | 'stretchY' | 'rotation' | 'quad'>>;
 
 const radians = (angle: number) => angle * Math.PI / 180;
 const rounded = (value: number) => Math.round(value * 1000) / 1000;

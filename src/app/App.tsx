@@ -240,7 +240,7 @@ export function App() {
         <button disabled={!availability.undo || loading} onClick={() => restore('undo')} title="Ctrl+Z">Annuler</button>
         <button disabled={!availability.redo || loading} onClick={() => restore('redo')} title="Ctrl+Y / Ctrl+Maj+Z">Rétablir</button>
         <span className="spacer" />
-        <span className="tag">M1.3 · reconstruction locale</span>
+        <span className="tag">M1.4 · perspective</span>
       </header>
       <aside className="tools" aria-label="Outils">
         <button title="Déplacer la vue" aria-label="Déplacement de la vue" aria-pressed={tool === 'pan'} className={tool === 'pan' ? 'active' : ''} onClick={() => setTool('pan')}>✥</button>
@@ -248,7 +248,8 @@ export function App() {
         <button disabled={!source || loading} title="Lasso polygonal — copier un objet de la source" aria-label="Lasso polygonal" aria-pressed={tool === 'lasso'} className={tool === 'lasso' ? 'active' : ''} onClick={() => setTool('lasso')}>⬠</button>
         <button disabled={!source || loading} title="Patch : copier une texture" aria-label="Patch polygonal" aria-pressed={tool === 'patch'} className={tool === 'patch' ? 'active' : ''} onClick={() => setTool('patch')}>▧</button>
         <button disabled={!source || loading} title="Masque de reconstruction" aria-label="Masque de reconstruction" aria-pressed={tool === 'mask'} className={tool === 'mask' ? 'active' : ''} onClick={() => setTool('mask')}>✎</button>
-        <button disabled title="Géométrie — M1.4" aria-label="Géométrie, non disponible">◇</button>
+        <button disabled={!source || loading} title="Déformation et perspective" aria-label="Perspective" aria-pressed={tool === 'perspective'} className={tool === 'perspective' ? 'active' : ''} onClick={() => setTool('perspective')}>⛶</button>
+        <button disabled title="Géométrie vectorielle — M1.5" aria-label="Géométrie, non disponible">◇</button>
       </aside>
       <main className="workspace">
         <div className="document-tab">{source?.file.name ?? 'Aucun document'}</div>

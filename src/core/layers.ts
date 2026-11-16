@@ -1,4 +1,6 @@
 import type { Size } from './viewport';
+import { homography } from './perspective';
+import type { Quad } from './perspective';
 
 export interface RasterLayer {
   id: string;
@@ -13,6 +15,7 @@ export interface RasterLayer {
   stretchX?: number;
   stretchY?: number;
   rotation: number;
+  quad?: Quad | null;
 }
 export const SOURCE_ID = 'source';
 export const MAX_LAYERS = 32;
@@ -49,6 +52,7 @@ export function updateLayer(layers: RasterLayer[], id: string, patch: LayerPatch
       stretchX: patch.stretchX === undefined ? layer.stretchX : finite(patch.stretchX, layer.stretchX ?? 1, 0.01, 16),
       stretchY: patch.stretchY === undefined ? layer.stretchY : finite(patch.stretchY, layer.stretchY ?? 1, 0.01, 16),
       rotation: finite(patch.rotation, layer.rotation, -360, 360),
+      quad: patch.quad === null ? null : patch.quad && homography(patch.quad) ? patch.quad : layer.quad,
     };
   });
 }
