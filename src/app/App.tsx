@@ -10,6 +10,8 @@ import { extractPolygon } from '../core/cutout';
 import { createRepairRegion, patchPosition } from '../core/repair';
 import type { RepairRegion } from '../core/repair';
 import { RepairPanel } from '../editor2d/RepairPanel';
+import { emptyHistory, recordHistory, stepHistory, trimHistory } from '../core/history';
+import type { History } from '../core/history';
 import type { Point } from '../core/cutout';
 import type { EditorTool } from '../editor2d/Viewport';
 
@@ -22,6 +24,17 @@ interface DocumentState {
 }
 type ImportMode = 'source' | 'layer';
 
+function retainedAssets(doc: DocumentState | null, history: History<DocumentState>) {
+  const images = new Map<string, SourceImage>();
+  for (const snapshot of [...history.past, ...history.future, ...(doc ? [doc] : [])]) {
+    for (const image of Object.values(snapshot.assets)) images.set(image.url, image);
+  }
+  return images;
+}
+function retainedPixels(doc: DocumentState, history: History<DocumentState>) {
+  return [...retainedAssets(doc, history).values()].reduce((sum, image) => sum + image.width * image.height, 0);
+}
+
 export function App() {
   const [document, setDocument] = useState<DocumentState | null>(null);
   const [error, setError] = useState('');
@@ -30,24 +43,52 @@ export function App() {
   const input = useRef<HTMLInputElement>(null);
   const request = useRef(0);
   const current = useRef<DocumentState | null>(null);
+  const timeline = useRef<History<DocumentState>>(emptyHistory());
+  const [availability, setAvailability] = useState({ undo: false, redo: false });
   const importMode = useRef<ImportMode>('source');
   const source = document?.source ?? null;
 
   useEffect(() => () => {
     request.current += 1;
-    for (const image of Object.values(current.current?.assets ?? {})) URL.revokeObjectURL(image.url);
+    for (const url of retainedAssets(current.current, timeline.current).keys()) URL.revokeObjectURL(url);
     current.current = null;
+    timeline.current = emptyHistory();
   }, []);
 
-  function commit(next: DocumentState) {
+  function applyState(next: DocumentState, history: History<DocumentState>) {
+    const previous = retainedAssets(current.current, timeline.current);
+    const retained = retainedAssets(next, history);
     current.current = next;
+    timeline.current = history;
     setDocument(next);
+    setAvailability({ undo: history.past.length > 0, redo: history.future.length > 0 });
+    for (const url of previous.keys()) if (!retained.has(url)) URL.revokeObjectURL(url);
+  }
+
+  function commit(next: DocumentState, mode: 'edit' | 'selection' | 'reset' = 'edit') {
+    const previous = current.current;
+    let history = timeline.current;
+    if (mode === 'reset') history = emptyHistory();
+    else if (mode === 'edit' && previous) {
+      if (next.layers === previous.layers && next.assets === previous.assets && next.repairs === previous.repairs) return;
+      history = recordHistory(history, previous);
+      history = trimHistory(history, candidate => retainedPixels(next, candidate) <= 256_000_000);
+    }
+    applyState(next, history);
+  }
+
+  function restore(direction: 'undo' | 'redo') {
+    const doc = current.current;
+    if (!doc || loading) return;
+    const result = stepHistory(timeline.current, doc, direction);
+    if (result) applyState(result.current, result.history);
   }
 
   async function openFile(file: File, mode: ImportMode) {
+    if (loading) return;
     const existing = current.current;
     if (mode === 'layer' && !existing) return;
-    if (mode === 'source' && existing && (existing.layers.length > 1 || existing.repairs.length > 0) &&
+    if (mode === 'source' && existing && (existing.layers.length > 1 || existing.repairs.length > 0 || timeline.current.past.length > 0) &&
         !window.confirm('Remplacer le document et perdre les modifications non sauvegardées ?')) return;
     if (mode === 'layer' && existing && existing.layers.length >= MAX_LAYERS) {
       setError('Limite de 32 calques atteinte.'); return;
@@ -73,8 +114,7 @@ export function App() {
         commit({ ...previous, layers: [...previous.layers, layer], assets: { ...previous.assets, [layerId]: next }, selected: layerId });
       } else {
         setTool('pan');
-        commit({ source: next, layers: [createLayer(SOURCE_ID, 'Image source', next, next)], assets: { [SOURCE_ID]: next }, selected: SOURCE_ID, repairs: [] });
-        for (const image of Object.values(previous?.assets ?? {})) URL.revokeObjectURL(image.url);
+        commit({ source: next, layers: [createLayer(SOURCE_ID, 'Image source', next, next)], assets: { [SOURCE_ID]: next }, selected: SOURCE_ID, repairs: [] }, 'reset');
       }
     } catch (err) {
       if (id === request.current) setError(err instanceof Error ? err.message : 'Échec de l’import.');
@@ -157,12 +197,15 @@ export function App() {
 
   function selectLayer(id: string) {
     const doc = current.current;
-    if (doc && doc.layers.some(layer => layer.id === id)) commit({ ...doc, selected: id });
+    if (doc && doc.layers.some(layer => layer.id === id)) commit({ ...doc, selected: id }, 'selection');
   }
 
   function changeLayer(id: string, patch: Partial<Omit<RasterLayer, 'id'>>) {
     const doc = current.current;
-    if (doc) commit({ ...doc, layers: updateLayer(doc.layers, id, patch) });
+    if (!doc) return;
+    const layers = updateLayer(doc.layers, id, patch);
+    if (layers.every((layer, i) => JSON.stringify(layer) === JSON.stringify(doc.layers[i]))) return;
+    commit({ ...doc, layers });
   }
   function moveLayer(id: string, direction: -1 | 1) {
     const doc = current.current;
@@ -174,17 +217,28 @@ export function App() {
     const layers = removeLayer(doc.layers, id);
     if (layers === doc.layers) return;
     const assets = { ...doc.assets };
-    URL.revokeObjectURL(assets[id].url);
     delete assets[id];
     commit({ ...doc, layers, assets, selected: doc.selected === id ? layers[layers.length - 1].id : doc.selected });
   }
 
   return (
-    <div className="studio" onDragOver={event => event.preventDefault()} onDrop={onDrop}>
+    <div className="studio" tabIndex={-1} onDragOver={event => event.preventDefault()} onDrop={onDrop}
+      onKeyDown={event => {
+        if (!(event.ctrlKey || event.metaKey) || event.altKey || loading) return;
+        const target = event.target;
+        if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select'))) return;
+        const key = event.key.toLowerCase();
+        if (key === 'z' || key === 'y') {
+          event.preventDefault();
+          restore(key === 'y' || event.shiftKey ? 'redo' : 'undo');
+        }
+      }}>
       <header className="topbar">
         <strong className="brand">ASSET<span> STUDIO</span></strong>
         <button onClick={() => choose()}>Importer une image</button>
         <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={onInput} />
+        <button disabled={!availability.undo || loading} onClick={() => restore('undo')} title="Ctrl+Z">Annuler</button>
+        <button disabled={!availability.redo || loading} onClick={() => restore('redo')} title="Ctrl+Y / Ctrl+Maj+Z">Rétablir</button>
         <span className="spacer" />
         <span className="tag">M1.3 · reconstruction locale</span>
       </header>
