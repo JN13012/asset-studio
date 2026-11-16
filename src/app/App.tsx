@@ -8,25 +8,18 @@ import { Viewport } from '../editor2d/Viewport';
 import { LayerPanel } from '../editor2d/LayerPanel';
 import { extractPolygon } from '../core/cutout';
 import { createRepairRegion, patchPosition } from '../core/repair';
-import type { RepairRegion } from '../core/repair';
 import { RepairPanel } from '../editor2d/RepairPanel';
 import { GeometryPanel } from '../editor2d/GeometryPanel';
+import { readProject, saveProject, projectFilename } from '../core/project';
+import type { DocumentState } from '../core/project';
+import { downloadBlob } from '../core/repair';
 import { createGeometry, updateGeometry } from '../core/geometry';
-import type { Geometry, GeometryPatch } from '../core/geometry';
+import type { GeometryPatch } from '../core/geometry';
 import { emptyHistory, recordHistory, stepHistory, trimHistory } from '../core/history';
 import type { History } from '../core/history';
 import type { Point } from '../core/cutout';
 import type { EditorTool } from '../editor2d/Viewport';
 
-interface DocumentState {
-  source: SourceImage;
-  layers: RasterLayer[];
-  assets: Record<string, SourceImage>;
-  selected: string;
-  repairs: RepairRegion[];
-  geometry: Geometry[];
-  selectedGeometry: string | null;
-}
 type ImportMode = 'source' | 'layer';
 
 function retainedAssets(doc: DocumentState | null, history: History<DocumentState>) {
@@ -46,6 +39,7 @@ export function App() {
   const [tool, setTool] = useState<EditorTool>('pan');
   const [loading, setLoading] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const projectInput = useRef<HTMLInputElement>(null);
   const request = useRef(0);
   const current = useRef<DocumentState | null>(null);
   const timeline = useRef<History<DocumentState>>(emptyHistory());
@@ -128,6 +122,37 @@ export function App() {
     }
   }
 
+  async function openProject(file: File) {
+    if (loading) return;
+    if (current.current && !window.confirm('Remplacer le projet ouvert ? Les modifications non enregistrées seront perdues.')) return;
+    const id = ++request.current;
+    setLoading(true); setError('');
+    try {
+      const next = await readProject(file);
+      if (id !== request.current) {
+        for (const asset of Object.values(next.assets)) URL.revokeObjectURL(asset.url);
+        return;
+      }
+      setTool('pan');
+      commit(next, 'reset');
+    } catch (error) {
+      if (id === request.current) setError(error instanceof Error ? error.message : 'Projet illisible.');
+    } finally {
+      if (id === request.current) setLoading(false);
+    }
+  }
+
+  function downloadProject() {
+    const doc = current.current;
+    if (!doc || loading) return;
+    try {
+      downloadBlob(saveProject(doc), projectFilename(doc.source.file.name));
+      setError('');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Échec de la sauvegarde.');
+    }
+  }
+
   function onInput(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -137,7 +162,10 @@ export function App() {
   function onDrop(event: DragEvent<HTMLElement>) {
     event.preventDefault();
     const file = event.dataTransfer.files[0];
-    if (file) void openFile(file, 'source');
+    if (file) {
+      if (file.name.toLowerCase().endsWith('.assetstudio')) void openProject(file);
+      else void openFile(file, 'source');
+    }
   }
 
   function choose(mode: ImportMode = 'source') {
@@ -272,6 +300,7 @@ export function App() {
         const target = event.target;
         if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select'))) return;
         const key = event.key.toLowerCase();
+        if (key === 's') { event.preventDefault(); downloadProject(); return; }
         if (key === 'z' || key === 'y') {
           event.preventDefault();
           restore(key === 'y' || event.shiftKey ? 'redo' : 'undo');
@@ -279,12 +308,15 @@ export function App() {
       }}>
       <header className="topbar">
         <strong className="brand">ASSET<span> STUDIO</span></strong>
-        <button onClick={() => choose()}>Importer une image</button>
+        <button disabled={loading} onClick={() => choose()}>Importer une image</button>
+        <button disabled={loading} onClick={() => projectInput.current?.click()}>Ouvrir un projet</button>
+        <input ref={projectInput} type="file" accept=".assetstudio" hidden onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file) void openProject(file); }} />
+        <button disabled={!source || loading} onClick={downloadProject}>Enregistrer le projet</button>
         <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={onInput} />
         <button disabled={!availability.undo || loading} onClick={() => restore('undo')} title="Ctrl+Z">Annuler</button>
         <button disabled={!availability.redo || loading} onClick={() => restore('redo')} title="Ctrl+Y / Ctrl+Maj+Z">Rétablir</button>
         <span className="spacer" />
-        <span className="tag">M1.5 · géométrie</span>
+        <span className="tag">M1.6 · projets</span>
       </header>
       <aside className="tools" aria-label="Outils">
         <button title="Déplacer la vue" aria-label="Déplacement de la vue" aria-pressed={tool === 'pan'} className={tool === 'pan' ? 'active' : ''} onClick={() => setTool('pan')}>✥</button>
@@ -317,7 +349,7 @@ export function App() {
         <GeometryPanel shapes={document?.geometry ?? []} selected={document?.selectedGeometry ?? null}
           select={id => { selectGeometry(id); setTool('geometry'); }} change={changeGeometry} remove={deleteGeometry} />
         <RepairPanel source={source} repairs={document?.repairs ?? []} remove={deleteRepair} report={setError} />
-        <section><p>Calques temporaires : sauvegarde à venir.</p></section>
+        <section><p>Enregistrer un projet .assetstudio pour conserver les calques et les tracés éditables.</p></section>
       </aside>
       <footer className="status"><span>Local · aucune transmission externe</span><span>{source ? source.width + ' × ' + source.height + ' px' : 'Prêt'}</span></footer>
     </div>
