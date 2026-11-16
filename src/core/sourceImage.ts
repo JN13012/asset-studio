@@ -32,6 +32,6 @@ export async function loadSourceImage(file: File): Promise<SourceImage> {
   } catch (error) {
     URL.revokeObjectURL(url);
     if (error instanceof Error) throw error;
-    throw new Error('Impossible de lire cette image.');
+    throw new Error('Impossible de lire cette image.', { cause: error });
   }
 }

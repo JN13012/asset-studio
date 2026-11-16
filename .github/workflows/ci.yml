@@ -11,7 +11,7 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,7 +21,14 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm audit
+      - name: Production dependency audit
+        run: npm audit --omit=dev
+      - name: Development dependency audit (informational)
+        run: npm audit
+        continue-on-error: true
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

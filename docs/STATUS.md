@@ -1,25 +1,12 @@
 # Status
 
-## M0 — final validation in progress
+## M0 — final correction pending verification
 
-Confirmed on user workstation at e2920ff: Node 24.18.0, Vitest 5.1.0, npm audit 0 vulnerabilities, typecheck PASS, 5/5 unit tests PASS, Vite production build PASS. The browser screenshot confirms PNG import and display of a 1254 × 1254 asset. The dependency lockfile is committed.
+User workstation at 84bfa18: production audit 0 vulnerabilities; development audit 7 moderate alerts from minimatch through typescript-eslint (DoS), accepted temporarily as non-blocking. Typecheck PASS, 5/5 unit tests PASS, build PASS, 2/2 Chromium smoke tests PASS. Lint failed on preserve-caught-error in sourceImage.ts.
 
-This revision adds baseline GitHub Actions checks, ESLint configuration and two Chromium smoke scenarios (synthetic PNG with transparency, zoom/pan/reset, file replacement, drag/drop and invalid inputs). They are written but not executed in the remote authoring environment. Browser and lint dependencies are not yet in package-lock.json and must be installed locally; see below. CI currently runs audit, typecheck, unit tests and build only. Once verified, extend CI to lint and Chromium.
+This commit preserves the original error cause, enables lint and Chromium in CI, and separates blocking production audit from informational full audit. Re-run lint and CI to confirm. No new dependency installed.
 
-## Local validation
-```sh
-npm install -D --save-exact @playwright/test eslint @eslint/js typescript-eslint eslint-plugin-react-hooks
-npm pkg set 'scripts.lint=eslint src tests vite.config.ts playwright.config.ts' 'scripts.test:e2e=playwright test'
-npx playwright install chromium
-npm audit
-npm run lint
-npm run typecheck
-npm run test
-npm run build
-npm run test:e2e
-```
-If Chromium lacks Linux system libraries, install required system dependencies with `npx playwright install-deps chromium`. Commit package.json and package-lock.json only after validation.
+## Security policy
+Review development advisories in context; moderate development-only findings do not block local feature work. Review critical/exploitable findings and production advisories; do not apply forced npm upgrades blindly. Local-only does not eliminate risk.
 
-M0 remaining: verify and wire lint/browser tests into CI; check CI result; no claim that these new tests have passed. Existing 50 MiB/64 MP acceptance limits are unchanged.
-
-Next: M1.1 layered 2D editor, see docs/M1.md. No API/AI/desktop integration.
+Next: M1.1 layer foundation. No automatic AI or desktop packaging.
