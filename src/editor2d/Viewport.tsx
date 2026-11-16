@@ -6,6 +6,9 @@ import type { RasterLayer } from '../core/layers';
 import { clampZoom, fitScale, zoomAtPoint } from '../core/viewport';
 import { TransformHandles } from './TransformHandles';
 import { PerspectiveHandles } from './PerspectiveHandles';
+import { GeometryOverlay } from './GeometryOverlay';
+import { moveGeometry, moveVertex, insertVertex, removeVertex } from '../core/geometry';
+import type { Geometry, GeometryPatch } from '../core/geometry';
 import { cornerDelta, IDENTITY_QUAD, moveCorner, rasterTransform } from '../core/perspective';
 import { transformFromDrag } from '../core/transform';
 import type { Handle, TransformPatch } from '../core/transform';
@@ -15,7 +18,7 @@ import { patchPosition } from '../core/repair';
 import type { RepairRegion } from '../core/repair';
 import type { Point } from '../core/cutout';
 
-export type EditorTool = 'pan' | 'select' | 'lasso' | 'patch' | 'mask' | 'perspective';
+export type EditorTool = 'pan' | 'select' | 'lasso' | 'patch' | 'mask' | 'perspective' | 'geometry';
 interface Props {
   source: SourceImage | null;
   choose: () => void;
@@ -29,6 +32,11 @@ interface Props {
   copyPolygon: (points: Point[], destination?: Point) => Promise<boolean>;
   repairs: RepairRegion[];
   addRepair: (points: Point[], instruction: string) => boolean;
+  geometry: Geometry[];
+  selectedGeometry: string | null;
+  addGeometry: (points: Point[], closed: boolean) => boolean;
+  selectGeometry: (id: string) => void;
+  changeGeometry: (id: string, patch: GeometryPatch) => void;
 }
 interface Drag {
   pointerId: number;
@@ -43,10 +51,15 @@ interface Drag {
   patch?: TransformPatch;
 }
 
-export function Viewport({ source, choose, layers, assets, selected, tool, busy, select, change, copyPolygon, repairs, addRepair }: Props) {
+export function Viewport({ source, choose, layers, assets, selected, tool, busy, select, change, copyPolygon, repairs, addRepair, geometry, selectedGeometry, addGeometry, selectGeometry, changeGeometry }: Props) {
   const area = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
+  const geometryDrag = useRef<{ pointerId: number; start: Point; shape: Geometry; vertex?: number; points?: Point[] } | null>(null);
+  const [geometryDraft, setGeometryDraft] = useState<Geometry | null>(null);
+  const [drawing, setDrawing] = useState(false);
+  const [closed, setClosed] = useState(false);
+  const [vertexIndex, setVertexIndex] = useState<number | null>(null);
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
   const [zoom, setZoom] = useState<number | null>(null);
   const [draft, setDraft] = useState<{ id: string; patch: TransformPatch } | null>(null);
@@ -59,7 +72,7 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
   const polygonTool = tool === 'lasso' || tool === 'patch' || tool === 'mask';
 
   useEffect(() => {
-    setPoints([]); setPicking(false); setDestination(null); setInstruction(''); setSelectionError('');
+    setPoints([]); setPicking(false); setDestination(null); setInstruction(''); setSelectionError(''); setDrawing(false); setVertexIndex(null); setGeometryDraft(null); geometryDrag.current = null;
   }, [tool]);
 
   useEffect(() => {
@@ -82,7 +95,7 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
     function wheel(event: WheelEvent) {
       if (event.deltaY === 0) return;
       event.preventDefault();
-      if (drag.current) return;
+      if (drag.current || geometryDrag.current) return;
       const rect = element!.getBoundingClientRect();
       const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1);
       const next = zoomAtPoint(currentZoom, currentOffset, {
@@ -101,9 +114,43 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
   const visualLayers = layers.map(layer => draft?.id === layer.id ? { ...layer, ...draft.patch } : layer);
   const active = visualLayers.find(layer => layer.id === selected && !layer.locked && layer.visible);
 
+  const displayedGeometry = geometry.map(shape => geometryDraft?.id === shape.id ? geometryDraft : shape);
+  const activeGeometry = displayedGeometry.find(shape => shape.id === selectedGeometry && shape.visible && !shape.locked);
+  function geometryPoint(event: PointerEvent<HTMLDivElement>): Point | null {
+    const rect = stage.current?.getBoundingClientRect();
+    if (!rect || !source) return null;
+    return sourcePoint({ x: event.clientX, y: event.clientY }, rect, source);
+  }
+  function finishGeometry() {
+    if (addGeometry(points, closed)) {
+      setPoints([]); setDrawing(false); setVertexIndex(null);
+    }
+  }
+  function beginGeometry(event: PointerEvent<HTMLDivElement>) {
+    if (drawing) {
+      const point = geometryPoint(event);
+      if (!point) return;
+      const snapped = event.shiftKey && source ? { x: Math.min(source.width, Math.round(point.x / 10) * 10), y: Math.min(source.height, Math.round(point.y / 10) * 10) } : point;
+      setPoints(previous => previous.length < 256 ? [...previous, snapped] : previous);
+      return;
+    }
+    const target = event.target instanceof Element ? event.target : null;
+    const id = target?.closest('[data-geometry-id]')?.getAttribute('data-geometry-id');
+    const shape = geometry.find(item => item.id === id);
+    if (!shape) return;
+    selectGeometry(shape.id);
+    const value = target?.closest('[data-geometry-vertex]')?.getAttribute('data-geometry-vertex');
+    const vertex = value == null ? undefined : Number(value);
+    setVertexIndex(vertex ?? null);
+    if (shape.locked || !shape.visible) return;
+    geometryDrag.current = { pointerId: event.pointerId, start: { x: event.clientX, y: event.clientY }, shape, vertex };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
   function start(event: PointerEvent<HTMLDivElement>) {
-    if (!source || busy || event.button !== 0 || drag.current) return;
+    if (!source || busy || event.button !== 0 || drag.current || geometryDrag.current) return;
     event.currentTarget.focus({ preventScroll: true });
+    if (tool === 'geometry') { beginGeometry(event); return; }
     if (polygonTool) {
       const rect = stage.current?.getBoundingClientRect();
       if (!rect) return;
@@ -141,6 +188,19 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function move(event: PointerEvent<HTMLDivElement>) {
+    const g = geometryDrag.current;
+    if (g && g.pointerId === event.pointerId && source) {
+      const delta = { x: (event.clientX - g.start.x) / scale, y: (event.clientY - g.start.y) / scale };
+      if (g.vertex === undefined) g.points = moveGeometry(g.shape.points, delta, source);
+      else {
+        const original = g.shape.points[g.vertex];
+        const point = { x: original.x + delta.x, y: original.y + delta.y };
+        if (event.shiftKey) { point.x = Math.round(point.x / 10) * 10; point.y = Math.round(point.y / 10) * 10; }
+        g.points = moveVertex(g.shape.points, g.vertex, point, source);
+      }
+      setGeometryDraft({ ...g.shape, points: g.points });
+      return;
+    }
     const value = drag.current;
     if (!value || value.pointerId !== event.pointerId) return;
     const x = value.offset.x + (event.clientX - value.start.x) / value.scale;
@@ -162,6 +222,13 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
     } else setOffset({ x, y });
   }
   function end(event: PointerEvent<HTMLDivElement>) {
+    const g = geometryDrag.current;
+    if (g?.pointerId === event.pointerId) {
+      geometryDrag.current = null;
+      setGeometryDraft(null);
+      if (event.type === 'pointerup' && g.points) changeGeometry(g.shape.id, { points: g.points });
+      return;
+    }
     const value = drag.current;
     if (!value || value.pointerId !== event.pointerId) return;
     drag.current = null;
@@ -213,6 +280,11 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
         tabIndex={source ? 0 : undefined}
         aria-label="Zone de travail"
         onKeyDown={event => {
+          if (geometryDrag.current && (event.key === 'Escape' || event.ctrlKey || event.metaKey)) {
+            geometryDrag.current = null; setGeometryDraft(null); event.preventDefault(); event.stopPropagation(); return;
+          }
+          if (tool === 'geometry' && drawing && event.key === 'Escape') { setDrawing(false); setPoints([]); return; }
+          if (tool === 'geometry' && drawing && event.key === 'Enter') { event.preventDefault(); finishGeometry(); return; }
           if (drag.current && (event.key === 'Escape' || event.ctrlKey || event.metaKey)) {
             drag.current = null;
             setDraft(null);
@@ -244,6 +316,8 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
                   }} />
               );
             })}
+            <GeometryOverlay shapes={displayedGeometry} selected={selectedGeometry} activeVertex={vertexIndex}
+              editable={tool === 'geometry' && !drawing} drawing={tool === 'geometry' && drawing ? points : []} closed={closed} zoom={scale} />
             {polygonTool && (points.length > 0 || (tool === 'mask' && repairs.length > 0)) && (
               <svg className="lasso-overlay" viewBox={'0 0 ' + source.width + ' ' + source.height} aria-hidden="true">
                 {tool === 'mask' && repairs.map(region => (
@@ -270,6 +344,24 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
           <TransformHandles layer={active} image={assets[active.id]} source={source} viewport={size} zoom={scale} offset={offset} />
         )}
       </div>
+      {source && tool === 'geometry' && (
+        <div className="lasso-controls">
+          {drawing ? <>
+            <span>Cliquer pour tracer · Maj : grille de 10 px · {points.length} sommets</span>
+            <button disabled={!points.length} onClick={() => setPoints(previous => previous.slice(0, -1))}>Dernier point</button>
+            <button onClick={() => { setDrawing(false); setPoints([]); }}>Annuler le tracé</button>
+            <button disabled={points.length < (closed ? 3 : 2) || busy} onClick={finishGeometry}>Valider le tracé</button>
+          </> : <>
+            <span>Glisser le tracé ou ses sommets. Choisir un sommet pour insérer ou supprimer un point.</span>
+            <button disabled={busy} onClick={() => { setPoints([]); setClosed(false); setDrawing(true); }}>Nouvelle ligne</button>
+            <button disabled={busy} onClick={() => { setPoints([]); setClosed(true); setDrawing(true); }}>Nouveau polygone</button>
+            <button disabled={!activeGeometry || vertexIndex === null || vertexIndex >= activeGeometry.points.length || (!activeGeometry.closed && vertexIndex === activeGeometry.points.length - 1) || activeGeometry.points.length >= 256 || busy}
+              onClick={() => { if (activeGeometry && vertexIndex !== null) { changeGeometry(activeGeometry.id, { points: insertVertex(activeGeometry.points, vertexIndex, activeGeometry.closed) }); setVertexIndex(vertexIndex + 1); } }}>Insérer un sommet</button>
+            <button disabled={!activeGeometry || vertexIndex === null || vertexIndex >= activeGeometry.points.length || activeGeometry.points.length <= (activeGeometry.closed ? 3 : 2) || busy}
+              onClick={() => { if (activeGeometry && vertexIndex !== null) { changeGeometry(activeGeometry.id, { points: removeVertex(activeGeometry.points, vertexIndex, activeGeometry.closed) }); setVertexIndex(null); } }}>Supprimer le sommet</button>
+          </>}
+        </div>
+      )}
       {source && tool === 'perspective' && (
         <div className="lasso-controls"><span>{active ? 'Glisser un sommet orange pour déformer le calque.' : 'Sélectionner un calque visible et déverrouillé.'}</span>
           <button disabled={!active?.quad || busy} onClick={() => active && change(active.id, { quad: null })}>Réinitialiser la perspective</button>
@@ -291,7 +383,7 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
         <button disabled={!source} onClick={() => setZoom(clampZoom(scale * 1.25))} aria-label="Zoom avant">+</button>
         <button disabled={!source} onClick={fit}>Ajuster</button>
         <button disabled={!source} onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }}>100 %</button>
-        <span>{tool === 'patch' || tool === 'lasso' ? 'Prélèvement sur la source originale' : tool === 'mask' ? 'Zones rouges : reconstruction demandée' : tool === 'perspective' ? 'Déformation projective · Molette : zoom' : tool === 'select' ? 'Glisser le calque ou ses poignées · Molette : zoom' : 'Glisser pour déplacer la vue · Molette : zoom'}</span>
+        <span>{tool === 'patch' || tool === 'lasso' ? 'Prélèvement sur la source originale' : tool === 'mask' ? 'Zones rouges : reconstruction demandée' : tool === 'geometry' ? 'Tracés vectoriels · Molette : zoom' : tool === 'perspective' ? 'Déformation projective · Molette : zoom' : tool === 'select' ? 'Glisser le calque ou ses poignées · Molette : zoom' : 'Glisser pour déplacer la vue · Molette : zoom'}</span>
       </div>
     </>
   );

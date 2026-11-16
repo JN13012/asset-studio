@@ -123,3 +123,10 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric
 .tool-perspective .image-stage img[data-layer-id="source"] { cursor: default; }
 .perspective-handle { fill: #ffe1bc; stroke: #b97d39; stroke-width: 1.5px; pointer-events: all; cursor: move; }
 .perspective-handle:hover { fill: #eeb36a; }
+
+.viewport.tool-geometry { cursor: crosshair; touch-action: none; user-select: none; }
+.geometry-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.geometry-target { pointer-events: visiblePainted; cursor: move; }
+.geometry-vertex { pointer-events: all; stroke: #267a92; cursor: move; }
+.geometry-vertex:hover { fill: #61d9e9; }
+.field input[type=color] { min-height: 28px; }

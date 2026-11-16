@@ -10,3 +10,6 @@ Bounded undo/redo (30 snapshots, 256 MP retained asset budget), source reset, as
 
 ## M1.4.2 — perspective (pending validation)
 Introduced independent convex quad deformation for unlocked visible raster/patch layers, composed with standard transforms; reset and history support. Seven new unit scenarios written. No new dependency. M1.3.3 through M1.4.2 not yet validated locally; no claim of test execution. Next steps: E2E perspective/history/repair checks, editable vector geometry (M1.5), then persistence and composite PNG export. Current ordinary transform handles show the pre-warp affine reference frame; perspective mode shows the actual warped corners.
+
+## M1.5 — vector geometry (pending validation)
+Open lines and closed polygons in source pixels, editable vertex handles, whole-shape dragging, insertion/removal, Shift grid snap, style, visibility and lock. Separate vector stack above all raster layers; integrated document history. Original unchanged. Seven unit tests and browser geometry scenario added; new tests not executed remotely. User has not supplied validation output for M1.3.3–M1.5 yet. Next M1.6: versioned project persistence and composite export (including projective raster transforms and vectors); then complete manual AI handoff.

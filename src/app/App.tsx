@@ -10,6 +10,9 @@ import { extractPolygon } from '../core/cutout';
 import { createRepairRegion, patchPosition } from '../core/repair';
 import type { RepairRegion } from '../core/repair';
 import { RepairPanel } from '../editor2d/RepairPanel';
+import { GeometryPanel } from '../editor2d/GeometryPanel';
+import { createGeometry, updateGeometry } from '../core/geometry';
+import type { Geometry, GeometryPatch } from '../core/geometry';
 import { emptyHistory, recordHistory, stepHistory, trimHistory } from '../core/history';
 import type { History } from '../core/history';
 import type { Point } from '../core/cutout';
@@ -21,6 +24,8 @@ interface DocumentState {
   assets: Record<string, SourceImage>;
   selected: string;
   repairs: RepairRegion[];
+  geometry: Geometry[];
+  selectedGeometry: string | null;
 }
 type ImportMode = 'source' | 'layer';
 
@@ -70,7 +75,7 @@ export function App() {
     let history = timeline.current;
     if (mode === 'reset') history = emptyHistory();
     else if (mode === 'edit' && previous) {
-      if (next.layers === previous.layers && next.assets === previous.assets && next.repairs === previous.repairs) return;
+      if (next.layers === previous.layers && next.assets === previous.assets && next.repairs === previous.repairs && next.geometry === previous.geometry) return;
       history = recordHistory(history, previous);
       history = trimHistory(history, candidate => retainedPixels(next, candidate) <= 256_000_000);
     }
@@ -88,7 +93,7 @@ export function App() {
     if (loading) return;
     const existing = current.current;
     if (mode === 'layer' && !existing) return;
-    if (mode === 'source' && existing && (existing.layers.length > 1 || existing.repairs.length > 0 || timeline.current.past.length > 0) &&
+    if (mode === 'source' && existing && (existing.layers.length > 1 || existing.repairs.length > 0 || existing.geometry.length > 0 || timeline.current.past.length > 0) &&
         !window.confirm('Remplacer le document et perdre les modifications non sauvegardées ?')) return;
     if (mode === 'layer' && existing && existing.layers.length >= MAX_LAYERS) {
       setError('Limite de 32 calques atteinte.'); return;
@@ -114,7 +119,7 @@ export function App() {
         commit({ ...previous, layers: [...previous.layers, layer], assets: { ...previous.assets, [layerId]: next }, selected: layerId });
       } else {
         setTool('pan');
-        commit({ source: next, layers: [createLayer(SOURCE_ID, 'Image source', next, next)], assets: { [SOURCE_ID]: next }, selected: SOURCE_ID, repairs: [] }, 'reset');
+        commit({ source: next, layers: [createLayer(SOURCE_ID, 'Image source', next, next)], assets: { [SOURCE_ID]: next }, selected: SOURCE_ID, repairs: [], geometry: [], selectedGeometry: null }, 'reset');
       }
     } catch (err) {
       if (id === request.current) setError(err instanceof Error ? err.message : 'Échec de l’import.');
@@ -195,6 +200,45 @@ export function App() {
     if (doc) commit({ ...doc, repairs: doc.repairs.filter(region => region.id !== id) });
   }
 
+  function addGeometry(points: Point[], closed: boolean): boolean {
+    const doc = current.current;
+    if (!doc || loading) return false;
+    try {
+      if (doc.geometry.length >= 64) throw new Error('Limite de 64 tracés atteinte.');
+      const shape = createGeometry(crypto.randomUUID(), points, closed, doc.source);
+      commit({ ...doc, geometry: [...doc.geometry, shape], selectedGeometry: shape.id });
+      setError('');
+      return true;
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Tracé invalide.');
+      return false;
+    }
+  }
+
+  function selectGeometry(id: string) {
+    const doc = current.current;
+    if (doc && doc.geometry.some(shape => shape.id === id)) commit({ ...doc, selectedGeometry: id }, 'selection');
+  }
+
+  function changeGeometry(id: string, patch: GeometryPatch) {
+    const doc = current.current;
+    if (!doc || loading) return;
+    try {
+      const geometry = updateGeometry(doc.geometry, id, patch, doc.source);
+      if (geometry !== doc.geometry) commit({ ...doc, geometry });
+      setError('');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Tracé invalide.');
+    }
+  }
+
+  function deleteGeometry(id: string) {
+    const doc = current.current;
+    if (!doc || loading || doc.geometry.find(shape => shape.id === id)?.locked) return;
+    const geometry = doc.geometry.filter(shape => shape.id !== id);
+    if (geometry.length !== doc.geometry.length) commit({ ...doc, geometry, selectedGeometry: doc.selectedGeometry === id ? null : doc.selectedGeometry });
+  }
+
   function selectLayer(id: string) {
     const doc = current.current;
     if (doc && doc.layers.some(layer => layer.id === id)) commit({ ...doc, selected: id }, 'selection');
@@ -240,7 +284,7 @@ export function App() {
         <button disabled={!availability.undo || loading} onClick={() => restore('undo')} title="Ctrl+Z">Annuler</button>
         <button disabled={!availability.redo || loading} onClick={() => restore('redo')} title="Ctrl+Y / Ctrl+Maj+Z">Rétablir</button>
         <span className="spacer" />
-        <span className="tag">M1.4 · perspective</span>
+        <span className="tag">M1.5 · géométrie</span>
       </header>
       <aside className="tools" aria-label="Outils">
         <button title="Déplacer la vue" aria-label="Déplacement de la vue" aria-pressed={tool === 'pan'} className={tool === 'pan' ? 'active' : ''} onClick={() => setTool('pan')}>✥</button>
@@ -249,13 +293,13 @@ export function App() {
         <button disabled={!source || loading} title="Patch : copier une texture" aria-label="Patch polygonal" aria-pressed={tool === 'patch'} className={tool === 'patch' ? 'active' : ''} onClick={() => setTool('patch')}>▧</button>
         <button disabled={!source || loading} title="Masque de reconstruction" aria-label="Masque de reconstruction" aria-pressed={tool === 'mask'} className={tool === 'mask' ? 'active' : ''} onClick={() => setTool('mask')}>✎</button>
         <button disabled={!source || loading} title="Déformation et perspective" aria-label="Perspective" aria-pressed={tool === 'perspective'} className={tool === 'perspective' ? 'active' : ''} onClick={() => setTool('perspective')}>⛶</button>
-        <button disabled title="Géométrie vectorielle — M1.5" aria-label="Géométrie, non disponible">◇</button>
+        <button disabled={!source || loading} title="Géométrie vectorielle" aria-label="Géométrie vectorielle" aria-pressed={tool === 'geometry'} className={tool === 'geometry' ? 'active' : ''} onClick={() => setTool('geometry')}>◇</button>
       </aside>
       <main className="workspace">
         <div className="document-tab">{source?.file.name ?? 'Aucun document'}</div>
         {error && <div role="alert" className="error">{error}</div>}
         {loading && <div role="status" className="notice">Lecture de l’image…</div>}
-        <Viewport key={source?.url ?? 'empty'} source={source} choose={() => choose()} layers={document?.layers ?? []} assets={document?.assets ?? {}} selected={document?.selected ?? ''} tool={tool} busy={loading} select={selectLayer} change={changeLayer} copyPolygon={copyPolygon} repairs={document?.repairs ?? []} addRepair={addRepair} />
+        <Viewport key={source?.url ?? 'empty'} source={source} choose={() => choose()} layers={document?.layers ?? []} assets={document?.assets ?? {}} selected={document?.selected ?? ''} tool={tool} busy={loading} select={selectLayer} change={changeLayer} copyPolygon={copyPolygon} repairs={document?.repairs ?? []} addRepair={addRepair} geometry={document?.geometry ?? []} selectedGeometry={document?.selectedGeometry ?? null} addGeometry={addGeometry} selectGeometry={selectGeometry} changeGeometry={changeGeometry} />
       </main>
       <aside className="inspector" aria-label="Propriétés du document">
         <LayerPanel layers={document?.layers ?? []} selected={document?.selected ?? ''} loading={loading}
@@ -270,6 +314,8 @@ export function App() {
             <dt>Fichier</dt><dd>{source ? (source.file.size / 1048576).toFixed(2) + ' Mio' : '—'}</dd>
           </dl>
         </section>
+        <GeometryPanel shapes={document?.geometry ?? []} selected={document?.selectedGeometry ?? null}
+          select={id => { selectGeometry(id); setTool('geometry'); }} change={changeGeometry} remove={deleteGeometry} />
         <RepairPanel source={source} repairs={document?.repairs ?? []} remove={deleteRepair} report={setError} />
         <section><p>Calques temporaires : sauvegarde à venir.</p></section>
       </aside>
