@@ -1,9 +1,9 @@
 # Status
 
 ## Verified baseline
-User reported at 739bd5b: lint PASS, typecheck PASS, 11/11 Vitest, build PASS, 3/3 Playwright; visual overlay size and opacity confirmed. M0 and initial M1.1 validated locally. Production audit previously clean; moderate development-only minimatch advisory temporarily accepted. Remote CI status not confirmed.
+At 67592de user reported lint PASS, typecheck PASS, 15/15 unit tests PASS, build PASS, 4/4 browser tests PASS, and approved functional cutout. M0–M1.2 validated on workstation. CI result not confirmed.
 
-## Current increment — polygon extraction and direct movement
-Added source-space polygon selection, remove last vertex/cancel, copy to a transparent cropped local PNG layer, select and drag unlocked layers. Original bytes and pixels unchanged; copy leaves original object visible. Numeric scale and rotation remain available. Four unit tests and one browser scenario added; not executed in authoring environment. No dependency changes. Re-run lint, typecheck, unit tests, build and browser scenarios locally.
+## M1.3.1–M1.3.2 — pending validation
+Local polygon patch: clean source region, destination outline, apply as PNG layer above source/below foreground objects, editable opacity/position/scale/rotation. Reconstruction polygon mask with per-zone text, red overlay, removal and separate binary PNG / Markdown downloads. No dependencies changed. Tests authored but not executed in this environment. Source remains unchanged.
 
-Current limitations: lasso samples original source only, not composite; transparent pixels in layer bounding boxes are selectable; no erase/reconstruction, save, undo, handles or geometry warping. Next prioritize old-location cleanup and manual AI annotations, then transform handles and editable geometry.
+Limitations: source-only sampling, hard polygon edges, no automatic synthesis, brush or full AI handoff, no persistence. M1.3.3 undo/redo and subsequent geometry tools remain to implement. Use existing layer deletion or mask-region deletion to revert individual additions. Validate locally before accepting this increment.

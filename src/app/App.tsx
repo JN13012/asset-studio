@@ -7,6 +7,9 @@ import type { RasterLayer } from '../core/layers';
 import { Viewport } from '../editor2d/Viewport';
 import { LayerPanel } from '../editor2d/LayerPanel';
 import { extractPolygon } from '../core/cutout';
+import { createRepairRegion, patchPosition } from '../core/repair';
+import type { RepairRegion } from '../core/repair';
+import { RepairPanel } from '../editor2d/RepairPanel';
 import type { Point } from '../core/cutout';
 import type { EditorTool } from '../editor2d/Viewport';
 
@@ -15,6 +18,7 @@ interface DocumentState {
   layers: RasterLayer[];
   assets: Record<string, SourceImage>;
   selected: string;
+  repairs: RepairRegion[];
 }
 type ImportMode = 'source' | 'layer';
 
@@ -43,8 +47,8 @@ export function App() {
   async function openFile(file: File, mode: ImportMode) {
     const existing = current.current;
     if (mode === 'layer' && !existing) return;
-    if (mode === 'source' && existing && existing.layers.length > 1 &&
-        !window.confirm('Remplacer le document et perdre les calques non sauvegardés ?')) return;
+    if (mode === 'source' && existing && (existing.layers.length > 1 || existing.repairs.length > 0) &&
+        !window.confirm('Remplacer le document et perdre les modifications non sauvegardées ?')) return;
     if (mode === 'layer' && existing && existing.layers.length >= MAX_LAYERS) {
       setError('Limite de 32 calques atteinte.'); return;
     }
@@ -69,7 +73,7 @@ export function App() {
         commit({ ...previous, layers: [...previous.layers, layer], assets: { ...previous.assets, [layerId]: next }, selected: layerId });
       } else {
         setTool('pan');
-        commit({ source: next, layers: [createLayer(SOURCE_ID, 'Image source', next, next)], assets: { [SOURCE_ID]: next }, selected: SOURCE_ID });
+        commit({ source: next, layers: [createLayer(SOURCE_ID, 'Image source', next, next)], assets: { [SOURCE_ID]: next }, selected: SOURCE_ID, repairs: [] });
         for (const image of Object.values(previous?.assets ?? {})) URL.revokeObjectURL(image.url);
       }
     } catch (err) {
@@ -96,7 +100,7 @@ export function App() {
     input.current?.click();
   }
 
-  async function copyPolygon(points: Point[]): Promise<boolean> {
+  async function copyPolygon(points: Point[], destination?: Point): Promise<boolean> {
     const doc = current.current;
     if (!doc || loading) return false;
     if (doc.layers.length >= MAX_LAYERS) {
@@ -107,6 +111,7 @@ export function App() {
     setError('');
     try {
       const used = Object.values(doc.assets).reduce((sum, asset) => sum + asset.width * asset.height, 0);
+      const position = destination ? patchPosition(points, destination, doc.source) : null;
       const result = await extractPolygon(doc.source, points, MAX_DOCUMENT_PIXELS - used);
       const previous = current.current;
       if (id !== request.current || !previous || previous.source !== doc.source) {
@@ -114,8 +119,12 @@ export function App() {
         return false;
       }
       const layerId = crypto.randomUUID();
-      const layer = { ...createLayer(layerId, 'Objet détouré', result.image, previous.source), x: result.x, y: result.y };
-      commit({ ...previous, layers: [...previous.layers, layer], assets: { ...previous.assets, [layerId]: result.image }, selected: layerId });
+      const layer: RasterLayer = { ...createLayer(layerId, position ? 'Patch de reconstruction' : 'Objet détouré', result.image, previous.source), x: position?.x ?? result.x, y: position?.y ?? result.y, kind: position ? 'patch' : 'image' };
+      const layers = [...previous.layers];
+      // Put repairs behind foreground objects, above existing patches.
+      const firstObject = layers.findIndex((item, index) => index > 0 && item.kind !== 'patch');
+      layers.splice(position && firstObject !== -1 ? firstObject : layers.length, 0, layer);
+      commit({ ...previous, layers, assets: { ...previous.assets, [layerId]: result.image }, selected: layerId });
       setTool('select');
       return true;
     } catch (err) {
@@ -124,6 +133,26 @@ export function App() {
     } finally {
       if (id === request.current) setLoading(false);
     }
+  }
+
+  function addRepair(points: Point[], instruction: string): boolean {
+    const doc = current.current;
+    if (!doc) return false;
+    try {
+      if (doc.repairs.length >= 64) throw new Error('Limite de 64 zones de reconstruction atteinte.');
+      const region = createRepairRegion(crypto.randomUUID(), points, instruction, doc.source);
+      commit({ ...doc, repairs: [...doc.repairs, region] });
+      setError('');
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Zone invalide.');
+      return false;
+    }
+  }
+
+  function deleteRepair(id: string) {
+    const doc = current.current;
+    if (doc) commit({ ...doc, repairs: doc.repairs.filter(region => region.id !== id) });
   }
 
   function selectLayer(id: string) {
@@ -157,20 +186,21 @@ export function App() {
         <button onClick={() => choose()}>Importer une image</button>
         <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={onInput} />
         <span className="spacer" />
-        <span className="tag">M1 · détourage local</span>
+        <span className="tag">M1.3 · reconstruction locale</span>
       </header>
       <aside className="tools" aria-label="Outils">
         <button title="Déplacer la vue" aria-label="Déplacement de la vue" aria-pressed={tool === 'pan'} className={tool === 'pan' ? 'active' : ''} onClick={() => setTool('pan')}>✥</button>
         <button disabled={!source || loading} title="Sélectionner et déplacer un calque" aria-label="Sélection et déplacement" aria-pressed={tool === 'select'} className={tool === 'select' ? 'active' : ''} onClick={() => setTool('select')}>↖</button>
         <button disabled={!source || loading} title="Lasso polygonal — copier un objet de la source" aria-label="Lasso polygonal" aria-pressed={tool === 'lasso'} className={tool === 'lasso' ? 'active' : ''} onClick={() => setTool('lasso')}>⬠</button>
-        <button disabled title="Annotation — M2" aria-label="Annotation, non disponible">✎</button>
+        <button disabled={!source || loading} title="Patch : copier une texture" aria-label="Patch polygonal" aria-pressed={tool === 'patch'} className={tool === 'patch' ? 'active' : ''} onClick={() => setTool('patch')}>▧</button>
+        <button disabled={!source || loading} title="Masque de reconstruction" aria-label="Masque de reconstruction" aria-pressed={tool === 'mask'} className={tool === 'mask' ? 'active' : ''} onClick={() => setTool('mask')}>✎</button>
         <button disabled title="Géométrie — M1.4" aria-label="Géométrie, non disponible">◇</button>
       </aside>
       <main className="workspace">
         <div className="document-tab">{source?.file.name ?? 'Aucun document'}</div>
         {error && <div role="alert" className="error">{error}</div>}
         {loading && <div role="status" className="notice">Lecture de l’image…</div>}
-        <Viewport key={source?.url ?? 'empty'} source={source} choose={() => choose()} layers={document?.layers ?? []} assets={document?.assets ?? {}} selected={document?.selected ?? ''} tool={tool} busy={loading} select={selectLayer} change={changeLayer} copyPolygon={copyPolygon} />
+        <Viewport key={source?.url ?? 'empty'} source={source} choose={() => choose()} layers={document?.layers ?? []} assets={document?.assets ?? {}} selected={document?.selected ?? ''} tool={tool} busy={loading} select={selectLayer} change={changeLayer} copyPolygon={copyPolygon} repairs={document?.repairs ?? []} addRepair={addRepair} />
       </main>
       <aside className="inspector" aria-label="Propriétés du document">
         <LayerPanel layers={document?.layers ?? []} selected={document?.selected ?? ''} loading={loading}
@@ -185,7 +215,8 @@ export function App() {
             <dt>Fichier</dt><dd>{source ? (source.file.size / 1048576).toFixed(2) + ' Mio' : '—'}</dd>
           </dl>
         </section>
-        <section><h2>AI Handoff</h2><p>Annotation et export manuel prévus en M2.</p><p>Calques temporaires : sauvegarde à venir.</p></section>
+        <RepairPanel source={source} repairs={document?.repairs ?? []} remove={deleteRepair} report={setError} />
+        <section><p>Calques temporaires : sauvegarde à venir.</p></section>
       </aside>
       <footer className="status"><span>Local · aucune transmission externe</span><span>{source ? source.width + ' × ' + source.height + ' px' : 'Prêt'}</span></footer>
     </div>

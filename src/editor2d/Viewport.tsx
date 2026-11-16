@@ -5,10 +5,12 @@ import { SOURCE_ID } from '../core/layers';
 import type { RasterLayer } from '../core/layers';
 import { clampZoom, fitScale } from '../core/viewport';
 import type { Size } from '../core/viewport';
-import { sourcePoint } from '../core/cutout';
+import { polygonBounds, sourcePoint } from '../core/cutout';
+import { patchPosition } from '../core/repair';
+import type { RepairRegion } from '../core/repair';
 import type { Point } from '../core/cutout';
 
-export type EditorTool = 'pan' | 'select' | 'lasso';
+export type EditorTool = 'pan' | 'select' | 'lasso' | 'patch' | 'mask';
 interface Props {
   source: SourceImage | null;
   choose: () => void;
@@ -19,7 +21,9 @@ interface Props {
   busy: boolean;
   select: (id: string) => void;
   change: (id: string, patch: Partial<Omit<RasterLayer, 'id'>>) => void;
-  copyPolygon: (points: Point[]) => Promise<boolean>;
+  copyPolygon: (points: Point[], destination?: Point) => Promise<boolean>;
+  repairs: RepairRegion[];
+  addRepair: (points: Point[], instruction: string) => boolean;
 }
 interface Drag {
   pointerId: number;
@@ -29,7 +33,7 @@ interface Drag {
   scale: number;
 }
 
-export function Viewport({ source, choose, layers, assets, selected, tool, busy, select, change, copyPolygon }: Props) {
+export function Viewport({ source, choose, layers, assets, selected, tool, busy, select, change, copyPolygon, repairs, addRepair }: Props) {
   const area = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
@@ -37,6 +41,15 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
   const [zoom, setZoom] = useState<number | null>(null);
   const [offset, setOffset] = useState<Point>({ x: 0, y: 0 });
   const [points, setPoints] = useState<Point[]>([]);
+  const [picking, setPicking] = useState(false);
+  const [destination, setDestination] = useState<Point | null>(null);
+  const [instruction, setInstruction] = useState('');
+  const [selectionError, setSelectionError] = useState('');
+  const polygonTool = tool === 'lasso' || tool === 'patch' || tool === 'mask';
+
+  useEffect(() => {
+    setPoints([]); setPicking(false); setDestination(null); setInstruction(''); setSelectionError('');
+  }, [tool]);
 
   useEffect(() => {
     const element = area.current;
@@ -52,11 +65,23 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
 
   function start(event: PointerEvent<HTMLDivElement>) {
     if (!source || busy || event.button !== 0 || drag.current) return;
-    if (tool === 'lasso') {
+    if (polygonTool) {
       const rect = stage.current?.getBoundingClientRect();
       if (!rect) return;
       const point = sourcePoint({ x: event.clientX, y: event.clientY }, rect, source);
-      if (point) setPoints(previous => previous.length < 2048 ? [...previous, point] : previous);
+      if (point) {
+        if (tool === 'patch' && picking) {
+          try {
+            setDestination(patchPosition(points, point, source));
+            setSelectionError('');
+          } catch (error) {
+            setSelectionError(error instanceof Error ? error.message : 'Destination invalide.');
+          }
+        } else {
+          setPoints(previous => previous.length < 2048 ? [...previous, point] : previous);
+          setSelectionError('');
+        }
+      }
       return;
     }
     const start = { x: event.clientX, y: event.clientY };
@@ -87,8 +112,32 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
     setZoom(null);
     setOffset({ x: 0, y: 0 });
   }
+  function resetSelection() {
+    setPoints([]); setPicking(false); setDestination(null); setSelectionError('');
+  }
+  function chooseDestination() {
+    if (!source) return;
+    try {
+      polygonBounds(points, source);
+      setPicking(true); setSelectionError('');
+    } catch (error) {
+      setSelectionError(error instanceof Error ? error.message : 'Sélection invalide.');
+    }
+  }
   async function extract() {
-    if (points.length >= 3 && !busy && await copyPolygon(points)) setPoints([]);
+    if (busy || points.length < 3) return;
+    if (tool === 'mask') {
+      if (addRepair(points, instruction)) { resetSelection(); setInstruction(''); }
+    } else if (tool === 'patch') {
+      if (!picking) { chooseDestination(); return; }
+      if (destination && await copyPolygon(points, destination)) resetSelection();
+    } else if (await copyPolygon(points)) resetSelection();
+  }
+
+  let targetPoints: Point[] = [];
+  if (tool === 'patch' && source && destination && points.length >= 3) {
+    const bounds = polygonBounds(points, source);
+    targetPoints = points.map(p => ({ x: p.x - bounds.x + destination.x, y: p.y - bounds.y + destination.y }));
   }
 
   return (
@@ -104,8 +153,8 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
         tabIndex={source ? 0 : undefined}
         aria-label="Zone de travail"
         onKeyDown={event => {
-          if (tool !== 'lasso') return;
-          if (event.key === 'Escape') setPoints([]);
+          if (!polygonTool) return;
+          if (event.key === 'Escape') resetSelection();
           if (event.key === 'Enter') { event.preventDefault(); void extract(); }
         }}
       >
@@ -129,11 +178,15 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
                   }} />
               );
             })}
-            {tool === 'lasso' && points.length > 0 && (
+            {polygonTool && (points.length > 0 || (tool === 'mask' && repairs.length > 0)) && (
               <svg className="lasso-overlay" viewBox={'0 0 ' + source.width + ' ' + source.height} aria-hidden="true">
-                {points.length >= 3 && <polygon points={points.map(p => p.x + ',' + p.y).join(' ')} fill="#60d4ed" fillOpacity=".12" />}
-                <polyline points={points.map(p => p.x + ',' + p.y).join(' ')} stroke="#60d4ed" strokeWidth={2 / scale} fill="none" />
+                {tool === 'mask' && repairs.map(region => (
+                  <polygon key={region.id} points={region.points.map(p => p.x + ',' + p.y).join(' ')} fill="#ef7366" fillOpacity=".28" stroke="#ef7366" strokeWidth={2 / scale} />
+                ))}
+                {points.length >= 3 && <polygon points={points.map(p => p.x + ',' + p.y).join(' ')} fill={tool === 'mask' ? '#ef7366' : '#60d4ed'} fillOpacity=".16" />}
+                {points.length > 0 && <polyline points={points.map(p => p.x + ',' + p.y).join(' ')} stroke={tool === 'mask' ? '#ef7366' : '#60d4ed'} strokeWidth={2 / scale} fill="none" />}
                 {points.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={3.5 / scale} fill="#e6faff" stroke="#307d97" strokeWidth={1 / scale} />)}
+                {targetPoints.length > 0 && <polygon points={targetPoints.map(p => p.x + ',' + p.y).join(' ')} fill="#75e0a4" fillOpacity=".24" stroke="#75e0a4" strokeWidth={2 / scale} />}
               </svg>
             )}
           </div>
@@ -145,12 +198,14 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
           </div>
         )}
       </div>
-      {source && tool === 'lasso' && (
+      {source && polygonTool && (
         <div className="lasso-controls">
-          <span>Tracer les contours sur l’image source · {points.length} sommets</span>
-          <button disabled={!points.length || busy} onClick={() => setPoints(previous => previous.slice(0, -1))}>Dernier point</button>
-          <button disabled={!points.length || busy} onClick={() => setPoints([])}>Annuler</button>
-          <button disabled={points.length < 3 || busy} onClick={() => void extract()}>Copier en calque</button>
+          <span>{tool === 'patch' && picking ? 'Cliquer sur le coin supérieur gauche de la zone à recouvrir (contour vert).' : tool === 'mask' ? 'Délimiter une zone à reconstruire' : tool === 'patch' ? 'Délimiter une texture propre sur la source' : 'Tracer les contours sur l’image source'} · {points.length} sommets</span>
+          {tool === 'mask' && <label className="repair-instruction">Instruction <input value={instruction} maxLength={1000} placeholder="Ex. Remplacer la grue par du béton" onChange={event => setInstruction(event.currentTarget.value)} /></label>}
+          <button disabled={!points.length || busy || picking} onClick={() => setPoints(previous => previous.slice(0, -1))}>Dernier point</button>
+          <button disabled={!points.length || busy} onClick={resetSelection}>Annuler</button>
+          <button disabled={points.length < 3 || busy || (tool === 'patch' && picking && !destination)} onClick={() => void extract()}>{tool === 'patch' ? picking ? 'Appliquer le patch' : 'Choisir la destination' : tool === 'mask' ? 'Ajouter la zone' : 'Copier en calque'}</button>
+          {selectionError && <div role="alert" className="selection-error">{selectionError}</div>}
         </div>
       )}
       <div className="view-controls" aria-label="Contrôles de la vue">
@@ -159,7 +214,7 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
         <button disabled={!source} onClick={() => setZoom(clampZoom(scale * 1.25))} aria-label="Zoom avant">+</button>
         <button disabled={!source} onClick={fit}>Ajuster</button>
         <button disabled={!source} onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }}>100 %</button>
-        <span>{tool === 'lasso' ? 'Copie sur la source originale, même si un autre calque est visible' : tool === 'select' ? 'Glisser un calque déverrouillé' : 'Glisser pour déplacer la vue'}</span>
+        <span>{tool === 'patch' || tool === 'lasso' ? 'Prélèvement sur la source originale' : tool === 'mask' ? 'Zones rouges : reconstruction demandée' : tool === 'select' ? 'Glisser un calque déverrouillé' : 'Glisser pour déplacer la vue'}</span>
       </div>
     </>
   );

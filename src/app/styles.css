@@ -104,3 +104,12 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric
 .lasso-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .lasso-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 10px; background: #26333e; border-top: 1px solid #405461; }
 .lasso-controls span { flex: 1; color: #b6dce7; font-size: 11px; }
+
+.viewport.tool-patch, .viewport.tool-mask { cursor: crosshair; touch-action: none; }
+.repair-instruction { display: flex; gap: 6px; align-items: center; color: #b6dce7; flex: 1 1 240px; }
+.repair-instruction input { flex: 1; min-width: 100px; padding: 6px; background: #151921; color: #d7e1e7; border: 1px solid #405461; border-radius: 4px; font: inherit; }
+.selection-error { flex: 1 0 100%; color: #ffd2d2; }
+.repair-row { display: flex; align-items: start; justify-content: space-between; gap: 6px; padding: 6px; background: #30323b; border-left: 2px solid #ef7366; margin-bottom: 6px; overflow-wrap: anywhere; }
+.repair-row div { min-width: 0; }
+.repair-row p { margin: 3px 0; font-size: 11px; }
+.repair-exports { display: grid; gap: 6px; }

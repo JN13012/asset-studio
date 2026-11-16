@@ -2,6 +2,7 @@ import type { Size } from './viewport';
 
 export interface RasterLayer {
   id: string;
+  kind?: 'image' | 'patch';
   name: string;
   visible: boolean;
   locked: boolean;
