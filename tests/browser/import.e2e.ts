@@ -21,7 +21,7 @@ test('imports a transparent image, zooms, pans and resets', async ({ page }) => 
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
   await expect(page.getByText('Aucun document')).toBeVisible();
-  await page.locator('input[type=file][accept*=image]').setInputFiles({
+  await page.locator('input[type=file][accept*=image]:not([data-revision-input])').setInputFiles({
     name: 'airport-fixture.png',
     mimeType: 'image/png',
     buffer: await png(page, 96, 64),
@@ -57,7 +57,7 @@ test('imports a transparent image, zooms, pans and resets', async ({ page }) => 
 
 test('replaces the image by drop and preserves it when another import fails', async ({ page }) => {
   await page.goto('/');
-  const input = page.locator('input[type=file][accept*=image]');
+  const input = page.locator('input[type=file][accept*=image]:not([data-revision-input])');
   await input.setInputFiles({ name: 'first.png', mimeType: 'image/png', buffer: await png(page, 50, 40) });
   await expect(page.getByText('50 × 40 px')).toBeVisible();
   const bytes = await png(page, 80, 60);

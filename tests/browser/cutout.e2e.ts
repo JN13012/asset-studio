@@ -13,7 +13,7 @@ test('copies a triangular source selection into an alpha layer and moves it', as
     context.fillRect(0, 0, 200, 120);
     return canvas.toDataURL('image/png').split(',')[1];
   });
-  await page.locator('input[type=file][accept*=image]').setInputFiles({ name: 'fixture.png', mimeType: 'image/png', buffer: Buffer.from(encoded, 'base64') });
+  await page.locator('input[type=file][accept*=image]:not([data-revision-input])').setInputFiles({ name: 'fixture.png', mimeType: 'image/png', buffer: Buffer.from(encoded, 'base64') });
   const source = page.getByRole('img', { name: 'Image source du document' });
   await expect(source).toBeVisible();
   const original = await source.getAttribute('src');

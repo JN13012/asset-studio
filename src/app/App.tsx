@@ -9,6 +9,8 @@ import { LayerPanel } from '../editor2d/LayerPanel';
 import { extractPolygon } from '../core/cutout';
 import { createRepairRegion, patchPosition } from '../core/repair';
 import { RepairPanel } from '../editor2d/RepairPanel';
+import { HandoffPanel } from '../editor2d/HandoffPanel';
+import { mergeRevision } from '../core/handoff';
 import { GeometryPanel } from '../editor2d/GeometryPanel';
 import { readProject, saveProject, projectFilename } from '../core/project';
 import { renderComposite, compositeFilename } from '../core/composite';
@@ -41,6 +43,7 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const projectInput = useRef<HTMLInputElement>(null);
+  const revisionInput = useRef<HTMLInputElement>(null);
   const request = useRef(0);
   const current = useRef<DocumentState | null>(null);
   const timeline = useRef<History<DocumentState>>(emptyHistory());
@@ -167,6 +170,33 @@ export function App() {
     }
   }
 
+  async function importRevision(file: File) {
+    const doc = current.current;
+    if (!doc || loading) return;
+    if (doc.layers.length >= MAX_LAYERS) { setError('Limite de calques atteinte.'); return; }
+    const used = Object.values(doc.assets).reduce((sum, a) => sum+a.width*a.height,0);
+    if (used + doc.source.width*doc.source.height > MAX_DOCUMENT_PIXELS) { setError('Limite de mégapixels atteinte.'); return; }
+    setLoading(true); setError('');
+    const ticket = ++request.current;
+    let image: SourceImage | null = null;
+    try {
+      image = await mergeRevision(doc,file);
+      if (ticket !== request.current) return;
+      if (current.current?.source !== doc.source) return;
+      const id = crypto.randomUUID();
+      const layer = createLayer(id,'Révision IA',image,doc.source);
+      commit({ ...doc, layers: [...doc.layers.map(item => ({...item,visible:false})),layer],
+        assets: {...doc.assets,[id]:image}, selected:id, geometry:doc.geometry.map(shape=>({...shape,visible:false})) });
+      image = null;
+      setTool('select');
+    } catch (error) {
+      if (ticket === request.current) setError(error instanceof Error ? error.message : 'Import de révision impossible.');
+    } finally {
+      if (image) URL.revokeObjectURL(image.url);
+      if (ticket === request.current) setLoading(false);
+    }
+  }
+
   function onInput(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -222,12 +252,12 @@ export function App() {
     }
   }
 
-  function addRepair(points: Point[], instruction: string): boolean {
+  function addRepair(points: Point[], instruction: string, kind: 'edit' | 'protect'): boolean {
     const doc = current.current;
     if (!doc || loading) return false;
     try {
       if (doc.repairs.length >= 64) throw new Error('Limite de 64 zones de reconstruction atteinte.');
-      const region = createRepairRegion(crypto.randomUUID(), points, instruction, doc.source);
+      const region = createRepairRegion(crypto.randomUUID(), points, instruction, doc.source, kind);
       commit({ ...doc, repairs: [...doc.repairs, region] });
       setError('');
       return true;
@@ -331,7 +361,7 @@ export function App() {
         <button disabled={!availability.undo || loading} onClick={() => restore('undo')} title="Ctrl+Z">Annuler</button>
         <button disabled={!availability.redo || loading} onClick={() => restore('redo')} title="Ctrl+Y / Ctrl+Maj+Z">Rétablir</button>
         <span className="spacer" />
-        <span className="tag">M1.6 · projets</span>
+        <span className="tag">M2 · AI Handoff</span>
       </header>
       <aside className="tools" aria-label="Outils">
         <button title="Déplacer la vue" aria-label="Déplacement de la vue" aria-pressed={tool === 'pan'} className={tool === 'pan' ? 'active' : ''} onClick={() => setTool('pan')}>✥</button>
@@ -364,6 +394,11 @@ export function App() {
         <GeometryPanel shapes={document?.geometry ?? []} selected={document?.selectedGeometry ?? null}
           select={id => { selectGeometry(id); setTool('geometry'); }} change={changeGeometry} remove={deleteGeometry} />
         <RepairPanel source={source} repairs={document?.repairs ?? []} remove={deleteRepair} report={setError} />
+        <HandoffPanel document={document} busy={loading} setBusy={setLoading} report={setError} />
+        <section><h2>Révision IA</h2><p>Importer un résultat de mêmes dimensions. Avec des zones à reconstruire, seuls les pixels autorisés sont remplacés ; sinon tout le résultat est utilisé sauf les zones protégées.</p>
+          <button disabled={!source || loading} onClick={() => revisionInput.current?.click()}>Importer résultat IA</button>
+          <input ref={revisionInput} type="file" accept="image/png,image/jpeg,image/webp" data-revision-input hidden onChange={event=>{const file=event.currentTarget.files?.[0];event.currentTarget.value='';if(file)void importRevision(file);}} />
+        </section>
         <section><p>Enregistrer un projet .assetstudio pour conserver les calques et les tracés éditables.</p></section>
       </aside>
       <footer className="status"><span>Local · aucune transmission externe</span><span>{source ? source.width + ' × ' + source.height + ' px' : 'Prêt'}</span></footer>

@@ -31,7 +31,7 @@ interface Props {
   change: (id: string, patch: Partial<Omit<RasterLayer, 'id'>>) => void;
   copyPolygon: (points: Point[], destination?: Point) => Promise<boolean>;
   repairs: RepairRegion[];
-  addRepair: (points: Point[], instruction: string) => boolean;
+  addRepair: (points: Point[], instruction: string, kind: 'edit' | 'protect') => boolean;
   geometry: Geometry[];
   selectedGeometry: string | null;
   addGeometry: (points: Point[], closed: boolean) => boolean;
@@ -68,6 +68,7 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
   const [picking, setPicking] = useState(false);
   const [destination, setDestination] = useState<Point | null>(null);
   const [instruction, setInstruction] = useState('');
+  const [maskKind, setMaskKind] = useState<'edit' | 'protect'>('edit');
   const [selectionError, setSelectionError] = useState('');
   const polygonTool = tool === 'lasso' || tool === 'patch' || tool === 'mask';
 
@@ -254,7 +255,7 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
   async function extract() {
     if (busy || points.length < 3) return;
     if (tool === 'mask') {
-      if (addRepair(points, instruction)) { resetSelection(); setInstruction(''); }
+      if (addRepair(points, instruction, maskKind)) { resetSelection(); setInstruction(''); }
     } else if (tool === 'patch') {
       if (!picking) { chooseDestination(); return; }
       if (destination && await copyPolygon(points, destination)) resetSelection();
@@ -321,9 +322,9 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
             {polygonTool && (points.length > 0 || (tool === 'mask' && repairs.length > 0)) && (
               <svg className="lasso-overlay" viewBox={'0 0 ' + source.width + ' ' + source.height} aria-hidden="true">
                 {tool === 'mask' && repairs.map(region => (
-                  <polygon key={region.id} points={region.points.map(p => p.x + ',' + p.y).join(' ')} fill="#ef7366" fillOpacity=".28" stroke="#ef7366" strokeWidth={2 / scale} />
+                  <polygon key={region.id} points={region.points.map(p => p.x + ',' + p.y).join(' ')} fill={region.kind === 'protect' ? '#75e0a4' : '#ef7366'} fillOpacity=".28" stroke={region.kind === 'protect' ? '#75e0a4' : '#ef7366'} strokeWidth={2 / scale} />
                 ))}
-                {points.length >= 3 && <polygon points={points.map(p => p.x + ',' + p.y).join(' ')} fill={tool === 'mask' ? '#ef7366' : '#60d4ed'} fillOpacity=".16" />}
+                {points.length >= 3 && <polygon points={points.map(p => p.x + ',' + p.y).join(' ')} fill={tool === 'mask' ? maskKind === 'protect' ? '#75e0a4' : '#ef7366' : '#60d4ed'} fillOpacity=".16" />}
                 {points.length > 0 && <polyline points={points.map(p => p.x + ',' + p.y).join(' ')} stroke={tool === 'mask' ? '#ef7366' : '#60d4ed'} strokeWidth={2 / scale} fill="none" />}
                 {points.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={3.5 / scale} fill="#e6faff" stroke="#307d97" strokeWidth={1 / scale} />)}
                 {targetPoints.length > 0 && <polygon points={targetPoints.map(p => p.x + ',' + p.y).join(' ')} fill="#75e0a4" fillOpacity=".24" stroke="#75e0a4" strokeWidth={2 / scale} />}
@@ -370,6 +371,7 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
       {source && polygonTool && (
         <div className="lasso-controls">
           <span>{tool === 'patch' && picking ? 'Cliquer sur le coin supérieur gauche de la zone à recouvrir (contour vert).' : tool === 'mask' ? 'Délimiter une zone à reconstruire' : tool === 'patch' ? 'Délimiter une texture propre sur la source' : 'Tracer les contours sur l’image source'} · {points.length} sommets</span>
+          {tool === 'mask' && <label>Type de zone <select value={maskKind} onChange={event => setMaskKind(event.currentTarget.value === 'protect' ? 'protect' : 'edit')}><option value="edit">Reconstruire</option><option value="protect">Protéger</option></select></label>}
           {tool === 'mask' && <label className="repair-instruction">Instruction <input value={instruction} maxLength={1000} placeholder="Ex. Remplacer la grue par du béton" onChange={event => setInstruction(event.currentTarget.value)} /></label>}
           <button disabled={!points.length || busy || picking} onClick={() => setPoints(previous => previous.slice(0, -1))}>Dernier point</button>
           <button disabled={!points.length || busy} onClick={resetSelection}>Annuler la sélection</button>
@@ -383,7 +385,7 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
         <button disabled={!source} onClick={() => setZoom(clampZoom(scale * 1.25))} aria-label="Zoom avant">+</button>
         <button disabled={!source} onClick={fit}>Ajuster</button>
         <button disabled={!source} onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }}>100 %</button>
-        <span>{tool === 'patch' || tool === 'lasso' ? 'Prélèvement sur la source originale' : tool === 'mask' ? 'Zones rouges : reconstruction demandée' : tool === 'geometry' ? 'Tracés vectoriels · Molette : zoom' : tool === 'perspective' ? 'Déformation projective · Molette : zoom' : tool === 'select' ? 'Glisser le calque ou ses poignées · Molette : zoom' : 'Glisser pour déplacer la vue · Molette : zoom'}</span>
+        <span>{tool === 'patch' || tool === 'lasso' ? 'Prélèvement sur la source originale' : tool === 'mask' ? 'Rouge : reconstruire · Vert : protéger' : tool === 'geometry' ? 'Tracés vectoriels · Molette : zoom' : tool === 'perspective' ? 'Déformation projective · Molette : zoom' : tool === 'select' ? 'Glisser le calque ou ses poignées · Molette : zoom' : 'Glisser pour déplacer la vue · Molette : zoom'}</span>
       </div>
     </>
   );

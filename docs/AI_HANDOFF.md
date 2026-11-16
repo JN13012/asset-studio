@@ -1,18 +1,14 @@
-# Manual AI handoff — proposed v1 contract
+# Manual AI handoff — v1
 
-Target of M2; this is a specification, not an implemented feature.
+Implemented in M2; pending workstation validation.
 
-A handoff export contains:
-- original.<ext>: exact original input bytes.
-- annotated.png: source-size visual preview with corrections rendered and a separate legend (legend outside image or in instructions, not within mask coordinates).
-- edit-mask.png: 8-bit grayscale PNG, white = editable, black = not selected, same decoded width/height as source.
-- protect-mask.png: 8-bit grayscale PNG, white = must preserve; protective regions override edit masks on overlap.
-- geometry.svg: source-sized viewBox, vector target geometry only; no remote references or scripts.
-- instructions.md: user intent, ordered operations, preserve list, style and camera constraints.
-- manifest.json: schemaVersion, source file name and MIME, source dimensions, coordinate convention, list of operations, file paths and source SHA-256.
+Prepare dossier IA in the inspector; enter global request and use the mask tool for edit / protect polygons. Existing per-region instructions saved inside project. Prepare generates eight files, individually downloadable or ZIP32 stored archive:
+- original.png/jpg/webp: original exact bytes.
+- edited.png: composition at decoded source dimensions.
+- annotated.png: composition with numbered edit/protect regions.
+- edit-mask.png / protect-mask.png: opaque binary black/white RGBA PNG, source dimensions. Protect overrides edit on overlap; white means edit/protect respectively. If no explicit edit region exists, global edit except protected pixels (documented separately).
+- geometry.svg: visible vector targets with style, source viewBox.
+- instructions.md: global request, region instructions, camera/style/preserve constraints.
+- manifest.json: source SHA-256, metadata, region operations, coordinate convention, raster metadata, geometry, files and edit policy.
 
-All masks use decoded source-image coordinates, independent of pan, zoom, or display DPI. No ambiguous color-only semantics: annotate operations with IDs and explicit add/remove/replace/preserve intent. Keep annotations editable in the project, not burned into the source.
-
-Provide individual files for manual upload to ChatGPT; a ZIP may be offered for archiving but is not required for chat compatibility. Do not promise exact generative geometry or automatic conversation synchronization. Source-region compositing may be used locally when exact preservation is required.
-
-M2 acceptance: synthetic reference with known pixels, masks have identical dimensions, protected overlap verified, manifest schema validated, instructions and previews agree; import a manually supplied result as a new revision.
+Send the relevant files manually to ChatGPT; no API or upload from Asset Studio. Generative image output is not guaranteed to follow exact geometry. Import result IA accepts same-size raster; with edit regions, replace only allowed pixels in CURRENT composite; without edit regions, allow entire image except protected pixels. This enforces masks at import using decoded RGBA pixel compositing (not original compressed byte equality). Keep the old editable layers and vectors hidden and add new flattened revision; undo restores previous state. Save projects manually. User must not change composition between export and result import unless intended. No automatic revision alignment or resize.

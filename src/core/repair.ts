@@ -6,6 +6,7 @@ export interface RepairRegion {
   id: string;
   points: Point[];
   instruction: string;
+  kind?: 'edit' | 'protect';
 }
 
 export function patchPosition(points: Point[], destination: Point, image: Size): Point {
@@ -18,9 +19,9 @@ export function patchPosition(points: Point[], destination: Point, image: Size):
   return { x, y };
 }
 
-export function createRepairRegion(id: string, points: Point[], instruction: string, image: Size): RepairRegion {
+export function createRepairRegion(id: string, points: Point[], instruction: string, image: Size, kind: 'edit' | 'protect' = 'edit'): RepairRegion {
   polygonBounds(points, image);
-  return { id, points: points.map(point => ({ ...point })), instruction: instruction.trim().slice(0, 1000) };
+  return { id, points: points.map(point => ({ ...point })), instruction: instruction.trim().slice(0, 1000), kind };
 }
 
 export function repairInstructions(regions: RepairRegion[], image: Size): string {
@@ -32,15 +33,15 @@ export function repairInstructions(regions: RepairRegion[], image: Size): string
     'Conserver le reste de l’image, sa perspective, son éclairage et ses matériaux.',
     '',
     ...regions.flatMap((region, i) => [
-      '## Zone ' + (i + 1),
-      'Instruction : ' + (region.instruction || 'Reconstruire la zone en fonction des éléments voisins.'),
+      '## Zone ' + (i + 1) + ' — ' + (region.kind === 'protect' ? 'PROTÉGER' : 'RECONSTRUIRE'),
+      'Instruction : ' + (region.instruction || (region.kind === 'protect' ? 'Conserver la zone.' : 'Reconstruire la zone en fonction des éléments voisins.')),
       'Sommets (pixels, origine en haut à gauche) : ' + region.points.map(p => '(' + p.x.toFixed(2) + ', ' + p.y.toFixed(2) + ')').join(', '),
       '',
     ]),
   ].join('\n');
 }
 
-export async function renderRepairMask(image: Size, regions: RepairRegion[]): Promise<Blob> {
+export async function renderRepairMask(image: Size, regions: RepairRegion[], kind: 'edit' | 'protect' = 'edit'): Promise<Blob> {
   const canvas = document.createElement('canvas');
   canvas.width = image.width;
   canvas.height = image.height;
@@ -48,8 +49,9 @@ export async function renderRepairMask(image: Size, regions: RepairRegion[]): Pr
   if (!context) throw new Error('Canvas indisponible.');
   context.fillStyle = '#000';
   context.fillRect(0, 0, image.width, image.height);
-  context.fillStyle = '#fff';
-  for (const region of regions) {
+  const ordered = kind === 'protect' ? regions.filter(r => r.kind === 'protect') : [...regions.filter(r => r.kind !== 'protect'), ...regions.filter(r => r.kind === 'protect')];
+  for (const region of ordered) {
+    context.fillStyle = kind === 'edit' && region.kind === 'protect' ? '#000' : '#fff';
     polygonBounds(region.points, image);
     context.beginPath();
     for (const [i, p] of region.points.entries()) {

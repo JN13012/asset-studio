@@ -30,11 +30,11 @@ export function RepairPanel({ source, repairs, remove, report }: Props) {
   return (
     <section>
       <h2>Reconstruction / IA</h2>
-      <p>Zones rouges visibles avec l’outil masque. Export manuel, sans connexion à ChatGPT.</p>
+      <p>Zones rouges à reconstruire, vertes à protéger. Export manuel, sans connexion à ChatGPT.</p>
       {!repairs.length && <p>Aucune zone définie.</p>}
       {repairs.map((region, index) => (
         <div className="repair-row" key={region.id}>
-          <div><strong>Zone {index + 1}</strong><p>{region.instruction || 'Reconstruction locale'}</p></div>
+          <div><strong>Zone {index + 1} · {region.kind === 'protect' ? 'Protéger' : 'Reconstruire'}</strong><p>{region.instruction || 'Reconstruction locale'}</p></div>
           <button aria-label={'Supprimer zone ' + (index + 1)} onClick={() => remove(region.id)}>×</button>
         </div>
       ))}

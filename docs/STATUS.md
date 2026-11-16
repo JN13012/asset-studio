@@ -16,3 +16,6 @@ Open lines and closed polygons in source pixels, editable vertex handles, whole-
 
 ## M1.6 — persistence and export (pending validation)
 Versioned self-contained project with exact source bytes and editable layers, masks and shapes; reopen transactional validation. Original-sized PNG composite including affine and perspective deformation and vector shapes, transparency retained, editor overlays excluded. No new dependencies. 13 unit scenarios added; original browser image selectors updated for second input. New browser roundtrip test still to be added; no new tests run remotely. M1.3.3 onwards pending workstation validation as requested. Next M2 complete manual AI handoff, including actual composite, source, mask, geometry and instructions.
+
+## M2 — manual AI handoff (pending validation)
+Edit/protect regions, priority masking, global instruction, eight-file package (individual downloads + ZIP store), SHA-256 manifest, annotated preview, SVG geometry. Import same-size result as new composite revision; locally enforce mask and protection against current composite, keep previous editable layers hidden; undo supported. Seven unit cases authored, not executed. No dependency changes. Next: consolidated automated and manual validation, correct defects, then scope M3 3D separately. No new end-to-end tests yet.

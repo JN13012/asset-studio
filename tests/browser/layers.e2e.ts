@@ -16,7 +16,7 @@ async function fixture(page: Page, color: string, width: number, height: number)
 
 test('adds and edits independent layers without changing the source', async ({ page }) => {
   await page.goto('/');
-  const input = page.locator('input[type=file][accept*=image]');
+  const input = page.locator('input[type=file][accept*=image]:not([data-revision-input])');
   await input.setInputFiles({ name: 'base.png', mimeType: 'image/png', buffer: await fixture(page, '#334455', 200, 100) });
   await expect(page.getByText('200 × 100 px')).toBeVisible();
   const original = page.getByRole('img', { name: 'Image source du document' });

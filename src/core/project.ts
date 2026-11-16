@@ -129,7 +129,9 @@ export function validateManifest(value: unknown): Manifest {
     const g = record(value);
     const vertices = points(g.points,size,3,2048);
     polygonBounds(vertices,size);
-    return { id: id(g.id), points: vertices, instruction: string(g.instruction, 1000, true) };
+    if (g.kind !== undefined && g.kind !== 'edit' && g.kind !== 'protect') invalid();
+    const kind: RepairRegion['kind'] = g.kind === 'protect' ? 'protect' : 'edit';
+    return { id: id(g.id), points: vertices, instruction: string(g.instruction, 1000, true), kind };
   });
   unique(repairs.map(g => g.id));
   const selected = id(p.selected);
