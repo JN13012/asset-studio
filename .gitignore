@@ -1,15 +1,37 @@
+# Dependencies
 node_modules/
+
+# Build and cache
 dist/
+.vite/
+*.tsbuildinfo
+.eslintcache
+
+# Tests
 coverage/
 playwright-report/
 test-results/
-.vite/
+playwright/.cache/
+
+# Logs
+*.log
+
+# Environment and secrets
 .env
 .env.*
 !.env.example
 *.local
+
+# Local assets and projects
 local-assets/
 local-projects/
 handoffs/
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Operating systems
 .DS_Store
 Thumbs.db
