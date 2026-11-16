@@ -13,3 +13,6 @@ Introduced independent convex quad deformation for unlocked visible raster/patch
 
 ## M1.5 — vector geometry (pending validation)
 Open lines and closed polygons in source pixels, editable vertex handles, whole-shape dragging, insertion/removal, Shift grid snap, style, visibility and lock. Separate vector stack above all raster layers; integrated document history. Original unchanged. Seven unit tests and browser geometry scenario added; new tests not executed remotely. User has not supplied validation output for M1.3.3–M1.5 yet. Next M1.6: versioned project persistence and composite export (including projective raster transforms and vectors); then complete manual AI handoff.
+
+## M1.6 — persistence and export (pending validation)
+Versioned self-contained project with exact source bytes and editable layers, masks and shapes; reopen transactional validation. Original-sized PNG composite including affine and perspective deformation and vector shapes, transparency retained, editor overlays excluded. No new dependencies. 13 unit scenarios added; original browser image selectors updated for second input. New browser roundtrip test still to be added; no new tests run remotely. M1.3.3 onwards pending workstation validation as requested. Next M2 complete manual AI handoff, including actual composite, source, mask, geometry and instructions.

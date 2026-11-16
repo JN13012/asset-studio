@@ -11,6 +11,7 @@ import { createRepairRegion, patchPosition } from '../core/repair';
 import { RepairPanel } from '../editor2d/RepairPanel';
 import { GeometryPanel } from '../editor2d/GeometryPanel';
 import { readProject, saveProject, projectFilename } from '../core/project';
+import { renderComposite, compositeFilename } from '../core/composite';
 import type { DocumentState } from '../core/project';
 import { downloadBlob } from '../core/repair';
 import { createGeometry, updateGeometry } from '../core/geometry';
@@ -153,6 +154,19 @@ export function App() {
     }
   }
 
+  async function exportPNG() {
+    const doc = current.current;
+    if (!doc || loading) return;
+    setLoading(true); setError('');
+    try {
+      downloadBlob(await renderComposite(doc), compositeFilename(doc.source.file.name));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Échec de l’export PNG.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function onInput(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -210,7 +224,7 @@ export function App() {
 
   function addRepair(points: Point[], instruction: string): boolean {
     const doc = current.current;
-    if (!doc) return false;
+    if (!doc || loading) return false;
     try {
       if (doc.repairs.length >= 64) throw new Error('Limite de 64 zones de reconstruction atteinte.');
       const region = createRepairRegion(crypto.randomUUID(), points, instruction, doc.source);
@@ -225,7 +239,7 @@ export function App() {
 
   function deleteRepair(id: string) {
     const doc = current.current;
-    if (doc) commit({ ...doc, repairs: doc.repairs.filter(region => region.id !== id) });
+    if (doc && !loading) commit({ ...doc, repairs: doc.repairs.filter(region => region.id !== id) });
   }
 
   function addGeometry(points: Point[], closed: boolean): boolean {
@@ -274,18 +288,18 @@ export function App() {
 
   function changeLayer(id: string, patch: Partial<Omit<RasterLayer, 'id'>>) {
     const doc = current.current;
-    if (!doc) return;
+    if (!doc || loading) return;
     const layers = updateLayer(doc.layers, id, patch);
     if (layers.every((layer, i) => JSON.stringify(layer) === JSON.stringify(doc.layers[i]))) return;
     commit({ ...doc, layers });
   }
   function moveLayer(id: string, direction: -1 | 1) {
     const doc = current.current;
-    if (doc) commit({ ...doc, layers: reorderLayer(doc.layers, id, direction) });
+    if (doc && !loading) commit({ ...doc, layers: reorderLayer(doc.layers, id, direction) });
   }
   function deleteLayer(id: string) {
     const doc = current.current;
-    if (!doc) return;
+    if (!doc || loading) return;
     const layers = removeLayer(doc.layers, id);
     if (layers === doc.layers) return;
     const assets = { ...doc.assets };
@@ -312,6 +326,7 @@ export function App() {
         <button disabled={loading} onClick={() => projectInput.current?.click()}>Ouvrir un projet</button>
         <input ref={projectInput} type="file" accept=".assetstudio" hidden onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file) void openProject(file); }} />
         <button disabled={!source || loading} onClick={downloadProject}>Enregistrer le projet</button>
+        <button disabled={!source || loading} onClick={() => void exportPNG()}>Exporter PNG</button>
         <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={onInput} />
         <button disabled={!availability.undo || loading} onClick={() => restore('undo')} title="Ctrl+Z">Annuler</button>
         <button disabled={!availability.redo || loading} onClick={() => restore('redo')} title="Ctrl+Y / Ctrl+Maj+Z">Rétablir</button>
@@ -330,7 +345,7 @@ export function App() {
       <main className="workspace">
         <div className="document-tab">{source?.file.name ?? 'Aucun document'}</div>
         {error && <div role="alert" className="error">{error}</div>}
-        {loading && <div role="status" className="notice">Lecture de l’image…</div>}
+        {loading && <div role="status" className="notice">Traitement local…</div>}
         <Viewport key={source?.url ?? 'empty'} source={source} choose={() => choose()} layers={document?.layers ?? []} assets={document?.assets ?? {}} selected={document?.selected ?? ''} tool={tool} busy={loading} select={selectLayer} change={changeLayer} copyPolygon={copyPolygon} repairs={document?.repairs ?? []} addRepair={addRepair} geometry={document?.geometry ?? []} selectedGeometry={document?.selectedGeometry ?? null} addGeometry={addGeometry} selectGeometry={selectGeometry} changeGeometry={changeGeometry} />
       </main>
       <aside className="inspector" aria-label="Propriétés du document">

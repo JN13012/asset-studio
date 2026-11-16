@@ -24,7 +24,7 @@ export const MAX_DOCUMENT_PIXELS = 128_000_000;
 export function createLayer(id: string, name: string, image: Size, document: Size): RasterLayer {
   const source = id === SOURCE_ID;
   return {
-    id, name, visible: true, locked: source, opacity: 1,
+    id, name: name.trim().slice(0,120) || 'Image', visible: true, locked: source, opacity: 1,
     x: source ? 0 : Math.round((document.width - image.width) / 2),
     y: source ? 0 : Math.round((document.height - image.height) / 2),
     scale: 1, rotation: 0,

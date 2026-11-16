@@ -130,3 +130,8 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric
 .geometry-vertex { pointer-events: all; stroke: #267a92; cursor: move; }
 .geometry-vertex:hover { fill: #61d9e9; }
 .field input[type=color] { min-height: 28px; }
+
+/* File controls remain accessible in narrow desktop windows. */
+.topbar { gap: 8px; overflow-x: auto; }
+.topbar button { flex: 0 0 auto; white-space: nowrap; }
+.topbar .tag { white-space: nowrap; }
