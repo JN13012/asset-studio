@@ -10,6 +10,8 @@ export interface RasterLayer {
   x: number;
   y: number;
   scale: number;
+  stretchX?: number;
+  stretchY?: number;
   rotation: number;
 }
 export const SOURCE_ID = 'source';
@@ -44,6 +46,8 @@ export function updateLayer(layers: RasterLayer[], id: string, patch: LayerPatch
       x: finite(patch.x, layer.x, -100_000, 100_000),
       y: finite(patch.y, layer.y, -100_000, 100_000),
       scale: finite(patch.scale, layer.scale, 0.01, 16),
+      stretchX: patch.stretchX === undefined ? layer.stretchX : finite(patch.stretchX, layer.stretchX ?? 1, 0.01, 16),
+      stretchY: patch.stretchY === undefined ? layer.stretchY : finite(patch.stretchY, layer.stretchY ?? 1, 0.01, 16),
       rotation: finite(patch.rotation, layer.rotation, -360, 360),
     };
   });

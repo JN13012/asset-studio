@@ -3,7 +3,10 @@ import type { PointerEvent } from 'react';
 import type { SourceImage } from '../core/sourceImage';
 import { SOURCE_ID } from '../core/layers';
 import type { RasterLayer } from '../core/layers';
-import { clampZoom, fitScale } from '../core/viewport';
+import { clampZoom, fitScale, zoomAtPoint } from '../core/viewport';
+import { TransformHandles } from './TransformHandles';
+import { transformFromDrag } from '../core/transform';
+import type { Handle, TransformPatch } from '../core/transform';
 import type { Size } from '../core/viewport';
 import { polygonBounds, sourcePoint } from '../core/cutout';
 import { patchPosition } from '../core/repair';
@@ -31,6 +34,10 @@ interface Drag {
   offset: Point;
   layerId?: string;
   scale: number;
+  original?: RasterLayer;
+  image?: Size;
+  handle?: Handle;
+  patch?: TransformPatch;
 }
 
 export function Viewport({ source, choose, layers, assets, selected, tool, busy, select, change, copyPolygon, repairs, addRepair }: Props) {
@@ -39,6 +46,7 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
   const drag = useRef<Drag | null>(null);
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
   const [zoom, setZoom] = useState<number | null>(null);
+  const [draft, setDraft] = useState<{ id: string; patch: TransformPatch } | null>(null);
   const [offset, setOffset] = useState<Point>({ x: 0, y: 0 });
   const [points, setPoints] = useState<Point[]>([]);
   const [picking, setPicking] = useState(false);
@@ -63,8 +71,36 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
 
   const scale = zoom ?? (source ? fitScale(source, size) : 1);
 
+  useEffect(() => {
+    const element = area.current;
+    if (!element || !source) return;
+    let currentZoom = scale;
+    let currentOffset = offset;
+    function wheel(event: WheelEvent) {
+      if (event.deltaY === 0) return;
+      event.preventDefault();
+      if (drag.current) return;
+      const rect = element!.getBoundingClientRect();
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1);
+      const next = zoomAtPoint(currentZoom, currentOffset, {
+        x: event.clientX - rect.left - rect.width / 2,
+        y: event.clientY - rect.top - rect.height / 2,
+      }, Math.exp(-Math.max(-500, Math.min(500, delta)) * 0.0018));
+      currentZoom = next.zoom;
+      currentOffset = next.offset;
+      setZoom(next.zoom);
+      setOffset(next.offset);
+    }
+    element.addEventListener('wheel', wheel, { passive: false });
+    return () => element.removeEventListener('wheel', wheel);
+  }, [source, scale, offset]);
+
+  const visualLayers = layers.map(layer => draft?.id === layer.id ? { ...layer, ...draft.patch } : layer);
+  const active = visualLayers.find(layer => layer.id === selected && !layer.locked && layer.visible);
+
   function start(event: PointerEvent<HTMLDivElement>) {
     if (!source || busy || event.button !== 0 || drag.current) return;
+    event.currentTarget.focus({ preventScroll: true });
     if (polygonTool) {
       const rect = stage.current?.getBoundingClientRect();
       if (!rect) return;
@@ -86,12 +122,14 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
     }
     const start = { x: event.clientX, y: event.clientY };
     if (tool === 'select') {
-      const target = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>('[data-layer-id]') : null;
-      const layer = layers.find(item => item.id === target?.dataset.layerId);
+      const target = event.target instanceof Element ? event.target : null;
+      const handle = target?.closest('[data-transform-handle]')?.getAttribute('data-transform-handle') as Handle | null | undefined;
+      const layerId = handle ? selected : target?.closest('[data-layer-id]')?.getAttribute('data-layer-id');
+      const layer = layers.find(item => item.id === layerId);
       if (!layer) return;
       select(layer.id);
       if (layer.locked || !layer.visible) return;
-      drag.current = { pointerId: event.pointerId, start, offset: { x: layer.x, y: layer.y }, layerId: layer.id, scale };
+      drag.current = { pointerId: event.pointerId, start, offset: { x: layer.x, y: layer.y }, layerId: layer.id, scale, original: layer, image: assets[layer.id], handle: handle ?? undefined };
     } else {
       drag.current = { pointerId: event.pointerId, start, offset, scale: 1 };
     }
@@ -102,11 +140,25 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
     if (!value || value.pointerId !== event.pointerId) return;
     const x = value.offset.x + (event.clientX - value.start.x) / value.scale;
     const y = value.offset.y + (event.clientY - value.start.y) / value.scale;
-    if (value.layerId) change(value.layerId, { x: Math.round(x), y: Math.round(y) });
-    else setOffset({ x, y });
+    if (value.layerId) {
+      let patch: TransformPatch = { x: Math.round(x), y: Math.round(y) };
+      if (value.handle && value.original && value.image) {
+        const rect = stage.current?.getBoundingClientRect();
+        if (!rect) return;
+        const from = { x: (value.start.x - rect.left) / value.scale, y: (value.start.y - rect.top) / value.scale };
+        const to = { x: (event.clientX - rect.left) / value.scale, y: (event.clientY - rect.top) / value.scale };
+        patch = transformFromDrag(value.original, value.image, value.handle, from, to, event.shiftKey);
+      }
+      value.patch = patch;
+      setDraft({ id: value.layerId, patch });
+    } else setOffset({ x, y });
   }
   function end(event: PointerEvent<HTMLDivElement>) {
-    if (drag.current?.pointerId === event.pointerId) drag.current = null;
+    const value = drag.current;
+    if (!value || value.pointerId !== event.pointerId) return;
+    drag.current = null;
+    if (event.type === 'pointerup' && value.layerId && value.patch) change(value.layerId, value.patch);
+    setDraft(null);
   }
   function fit() {
     setZoom(null);
@@ -153,6 +205,13 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
         tabIndex={source ? 0 : undefined}
         aria-label="Zone de travail"
         onKeyDown={event => {
+          if (drag.current && (event.key === 'Escape' || event.ctrlKey || event.metaKey)) {
+            drag.current = null;
+            setDraft(null);
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
           if (!polygonTool) return;
           if (event.key === 'Escape') resetSelection();
           if (event.key === 'Enter') { event.preventDefault(); void extract(); }
@@ -164,17 +223,16 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
             height: source.height,
             transform: 'translate(-50%, -50%) translate(' + offset.x + 'px,' + offset.y + 'px) scale(' + scale + ')',
           }}>
-            {layers.map(layer => {
+            {visualLayers.map(layer => {
               const asset = assets[layer.id];
               return (
                 <img key={layer.id} src={asset.url} data-layer-id={layer.id}
                   alt={layer.id === SOURCE_ID ? 'Image source du document' : layer.name}
                   draggable={false} hidden={!layer.visible}
-                  className={tool === 'select' && selected === layer.id && !layer.locked ? 'selected-raster' : undefined}
                   style={{
                     width: asset.width, height: asset.height,
                     left: layer.x, top: layer.y, opacity: layer.opacity,
-                    transform: 'rotate(' + layer.rotation + 'deg) scale(' + layer.scale + ')',
+                    transform: 'rotate(' + layer.rotation + 'deg) scale(' + layer.scale * (layer.stretchX ?? 1) + ',' + layer.scale * (layer.stretchY ?? 1) + ')',
                   }} />
               );
             })}
@@ -197,13 +255,16 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
             <button onClick={choose}>Choisir un fichier</button>
           </div>
         )}
+        {source && active && tool === 'select' && (
+          <TransformHandles layer={active} image={assets[active.id]} source={source} viewport={size} zoom={scale} offset={offset} />
+        )}
       </div>
       {source && polygonTool && (
         <div className="lasso-controls">
           <span>{tool === 'patch' && picking ? 'Cliquer sur le coin supérieur gauche de la zone à recouvrir (contour vert).' : tool === 'mask' ? 'Délimiter une zone à reconstruire' : tool === 'patch' ? 'Délimiter une texture propre sur la source' : 'Tracer les contours sur l’image source'} · {points.length} sommets</span>
           {tool === 'mask' && <label className="repair-instruction">Instruction <input value={instruction} maxLength={1000} placeholder="Ex. Remplacer la grue par du béton" onChange={event => setInstruction(event.currentTarget.value)} /></label>}
           <button disabled={!points.length || busy || picking} onClick={() => setPoints(previous => previous.slice(0, -1))}>Dernier point</button>
-          <button disabled={!points.length || busy} onClick={resetSelection}>Annuler</button>
+          <button disabled={!points.length || busy} onClick={resetSelection}>Annuler la sélection</button>
           <button disabled={points.length < 3 || busy || (tool === 'patch' && picking && !destination)} onClick={() => void extract()}>{tool === 'patch' ? picking ? 'Appliquer le patch' : 'Choisir la destination' : tool === 'mask' ? 'Ajouter la zone' : 'Copier en calque'}</button>
           {selectionError && <div role="alert" className="selection-error">{selectionError}</div>}
         </div>
@@ -214,7 +275,7 @@ export function Viewport({ source, choose, layers, assets, selected, tool, busy,
         <button disabled={!source} onClick={() => setZoom(clampZoom(scale * 1.25))} aria-label="Zoom avant">+</button>
         <button disabled={!source} onClick={fit}>Ajuster</button>
         <button disabled={!source} onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }}>100 %</button>
-        <span>{tool === 'patch' || tool === 'lasso' ? 'Prélèvement sur la source originale' : tool === 'mask' ? 'Zones rouges : reconstruction demandée' : tool === 'select' ? 'Glisser un calque déverrouillé' : 'Glisser pour déplacer la vue'}</span>
+        <span>{tool === 'patch' || tool === 'lasso' ? 'Prélèvement sur la source originale' : tool === 'mask' ? 'Zones rouges : reconstruction demandée' : tool === 'select' ? 'Glisser le calque ou ses poignées · Molette : zoom' : 'Glisser pour déplacer la vue · Molette : zoom'}</span>
       </div>
     </>
   );

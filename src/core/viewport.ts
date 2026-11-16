@@ -20,3 +20,9 @@ export function fitScale(image: Size, viewport: Size, padding = 48): number {
   const height = Math.max(1, viewport.height - inset * 2);
   return clampZoom(Math.min(1, width / image.width, height / image.height));
 }
+
+export function zoomAtPoint(zoom: number, offset: { x: number; y: number }, pointer: { x: number; y: number }, factor: number) {
+  const next = clampZoom(zoom * factor);
+  const ratio = next / zoom;
+  return { zoom: next, offset: { x: pointer.x - (pointer.x - offset.x) * ratio, y: pointer.y - (pointer.y - offset.y) * ratio } };
+}

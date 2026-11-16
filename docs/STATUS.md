@@ -1,9 +1,9 @@
 # Status
 
 ## Verified baseline
-At 67592de user reported lint PASS, typecheck PASS, 15/15 unit tests PASS, build PASS, 4/4 browser tests PASS, and approved functional cutout. M0–M1.2 validated on workstation. CI result not confirmed.
+At 73fc65c, user reported lint PASS, typecheck PASS, 20/20 unit tests PASS, build PASS, 4/4 browser tests PASS; manually confirmed patch and mask work. Existing E2E did not cover repair specifically. Remote CI status not confirmed.
 
-## M1.3.1–M1.3.2 — pending validation
-Local polygon patch: clean source region, destination outline, apply as PNG layer above source/below foreground objects, editable opacity/position/scale/rotation. Reconstruction polygon mask with per-zone text, red overlay, removal and separate binary PNG / Markdown downloads. No dependencies changed. Tests authored but not executed in this environment. Source remains unchanged.
+## Current increment — history and transform handles (pending validation)
+Bounded undo/redo (30 snapshots, 256 MP retained asset budget), source reset, asset URL retention and release, focused Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z. Mouse wheel cursor-centered zoom, visible transform frame, proportional corner scaling, independent edge stretch, rotation handle with Shift 15° snap. Preview during drag, single committed edit at release, cancel on Escape/pointercancel. Numeric scale and stretch remain accessible. No new dependencies.
 
-Limitations: source-only sampling, hard polygon edges, no automatic synthesis, brush or full AI handoff, no persistence. M1.3.3 undo/redo and subsequent geometry tools remain to implement. Use existing layer deletion or mask-region deletion to revert individual additions. Validate locally before accepting this increment.
+11 new unit cases written; browser scenarios to verify direct transforms, history and reconstruction. No new tests executed by remote authoring environment. Run lint, typecheck, test, build, test:e2e locally then visually validate. Limits: in-memory only, no perspective warp, source-only patch sampling, no automatic background repair. Next: editable geometry (polyline, polygon, vertices), then saved projects and composite PNG export, complete AI handoff.

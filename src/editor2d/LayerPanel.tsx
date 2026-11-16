@@ -40,7 +40,7 @@ export function LayerPanel({ layers, selected, select, update, reorder, remove, 
           </div>
           <h2>Transformation du calque</h2>
           <label className="field">Nom
-            <input key={layer.id + ':name'} defaultValue={layer.name} disabled={!editable} onBlur={event => {
+            <input key={layer.id + ':name:' + layer.name} defaultValue={layer.name} disabled={!editable} onBlur={event => {
               update(layer.id, { name: event.currentTarget.value });
               if (!event.currentTarget.value.trim()) event.currentTarget.value = layer.name;
             }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
@@ -53,6 +53,8 @@ export function LayerPanel({ layers, selected, select, update, reorder, remove, 
             <NumberField key={layer.id + ':x:' + layer.x} label="X (px)" value={layer.x} disabled={!editable} change={x => update(layer.id, { x })} />
             <NumberField key={layer.id + ':y:' + layer.y} label="Y (px)" value={layer.y} disabled={!editable} change={y => update(layer.id, { y })} />
             <NumberField key={layer.id + ':scale:' + layer.scale} label="Échelle (%)" value={Math.round(layer.scale * 10000) / 100} disabled={!editable} change={scale => update(layer.id, { scale: scale / 100 })} />
+            <NumberField key={layer.id + ':stretchX:' + layer.stretchX} label="Largeur relative (%)" value={Math.round((layer.stretchX ?? 1) * 10000) / 100} disabled={!editable} change={stretchX => update(layer.id, { stretchX: stretchX / 100 })} />
+            <NumberField key={layer.id + ':stretchY:' + layer.stretchY} label="Hauteur relative (%)" value={Math.round((layer.stretchY ?? 1) * 10000) / 100} disabled={!editable} change={stretchY => update(layer.id, { stretchY: stretchY / 100 })} />
             <NumberField key={layer.id + ':rotation:' + layer.rotation} label="Rotation (°)" value={layer.rotation} disabled={!editable} change={rotation => update(layer.id, { rotation })} />
           </div>
         </>
